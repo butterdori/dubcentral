@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dub Console — Project</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+</head>
+<body>
+  <header class="appbar">
+    <h1><a href="/"><span class="orig">dub</span><span class="dub">console</span></a></h1>
+    <span class="crumb" id="crumb">loading…</span>
+    <span class="spacer"></span>
+    <select class="theme-pick" aria-label="Color theme"></select>
+  </header>
+
+  <main class="pp">
+    <div class="pp-col" id="col-left">
+      <!-- ======== Upload Center (top 2/3 of left column) ======== -->
+      <section class="pane" id="upload-center" data-pane="upload">
+        <h2><button class="pane-toggle" aria-label="Collapse pane">▾</button>Upload Center</h2>
+        <div class="pane-body">
+          <div class="uc-src-toggle" id="uc-src-toggle" hidden>
+            <button id="btn-src-original" class="primary">Original</button>
+            <button id="btn-src-dubbed" disabled title="Run Final Remix first">Dubbed</button>
+          </div>
+          <video id="player" controls preload="metadata" hidden></video>
+          <div id="no-video" class="placeholder-pane">no video uploaded</div>
+          <div class="uc-actions">
+            <button id="btn-video">Upload video</button>
+            <button id="btn-srt">Upload SRT</button>
+            <button id="btn-orig-srt" title="Original-language SRT: fills each line's original text — required for the CosyVoice engine's voice-cloning prompt">Upload original SRT</button>
+            <button id="btn-edit-csv">Edit segments.csv</button>
+            <button id="btn-dl-csv">Download CSV</button>
+            <button id="btn-ul-csv">Upload CSV</button>
+          </div>
+          <input type="file" id="file-video" accept="video/mp4,video/*" hidden>
+          <input type="file" id="file-srt" accept=".srt" hidden>
+          <input type="file" id="file-orig-srt" accept=".srt" hidden>
+          <input type="file" id="file-csv" accept=".csv,text/csv" hidden>
+          <div class="filecard" id="seg-info" hidden></div>
+          <div class="uc-status" id="uc-status"></div>
+        </div>
+      </section>
+
+      <!-- ======== Sub Center (bottom 1/3 of left column) ======== -->
+      <section class="pane" id="sub-center" data-pane="subs">
+        <h2><button class="pane-toggle" aria-label="Collapse pane">▾</button>Sub Center
+          <span class="dirty-flag mono" id="subs-dirty"></span></h2>
+        <div class="pane-body" id="subs-body">
+          <div class="placeholder-pane">loading…</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="pp-col" id="col-right">
+      <!-- ======== Speaker Center (top 1/3 of right column) ======== -->
+      <section class="pane" id="speaker-center" data-pane="speakers">
+        <h2><button class="pane-toggle" aria-label="Collapse pane">▾</button>Speaker Center</h2>
+        <div class="pane-body" id="sc-body">
+          <div class="placeholder-pane">loading…</div>
+        </div>
+      </section>
+
+      <!-- ======== Dub Center (bottom 2/3 of right column) ======== -->
+      <section class="pane" id="dub-center" data-pane="dub">
+        <h2><button class="pane-toggle" aria-label="Collapse pane">▾</button>Dub Center</h2>
+        <div class="pane-body" id="dc-body">
+          <div class="placeholder-pane">loading…</div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- CSV editor modal -->
+  <dialog id="csv-dlg">
+    <h3>segments.csv</h3>
+    <textarea id="csv-text" spellcheck="false" wrap="off"></textarea>
+    <p class="confirm-note">Saving rebuilds the line table: speaker assignments,
+      per-line overrides, and all dub progress are reset. Extracted clips and
+      generated takes are removed. Demucs separation is kept.</p>
+    <div class="modal-foot">
+      <button id="csv-cancel">Cancel</button>
+      <button class="primary" id="csv-save">Save &amp; reset</button>
+    </div>
+  </dialog>
+
+  <!-- generic destructive-action confirmation -->
+  <dialog id="confirm-dlg">
+    <h3 id="confirm-title"></h3>
+    <p class="dim" id="confirm-text"></p>
+    <div class="modal-foot">
+      <button id="confirm-cancel">Cancel</button>
+      <button class="primary" id="confirm-ok">Continue</button>
+    </div>
+  </dialog>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/panes.js"></script>
+  <script src="/js/upload-center.js"></script>
+  <script src="/js/sub-center.js"></script>
+  <script src="/js/speaker-center.js"></script>
+  <script src="/js/dub-center.js"></script>
+</body>
+</html>

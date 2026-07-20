@@ -1,0 +1,265 @@
+/* Dubbing console — dense, utilitarian.
+   Two voice colors run through the app: ORIGINAL (purple/mauve) and DUB
+   (green). Progress bars, badges, and the dub grid speak this pairing in
+   every theme.
+   Themes: nord-light (default), nord-dark, catppuccin (Mocha), dracula.
+   Selected via data-theme on <html>, persisted by js/theme.js. */
+
+:root, html[data-theme="nord-light"] {
+  --bg: #ECEFF4; --panel: #E5E9F0; --panel-2: #D8DEE9; --line: #c3cad8;
+  --text: #2E3440; --dim: #59637a;
+  --orig: #9d6b94; --dub: #4d9660; --dub-contrast: #ECEFF4;
+  --warn: #b0722d; --err: #BF616A; --backdrop: rgba(46, 52, 64, .45);
+}
+html[data-theme="nord-dark"] {
+  --bg: #2E3440; --panel: #3B4252; --panel-2: #434C5E; --line: #4C566A;
+  --text: #ECEFF4; --dim: #94a0b8;
+  --orig: #B48EAD; --dub: #A3BE8C; --dub-contrast: #2E3440;
+  --warn: #EBCB8B; --err: #BF616A; --backdrop: rgba(10, 12, 16, .6);
+}
+html[data-theme="catppuccin"] {
+  --bg: #1e1e2e; --panel: #181825; --panel-2: #313244; --line: #45475a;
+  --text: #cdd6f4; --dim: #a6adc8;
+  --orig: #cba6f7; --dub: #a6e3a1; --dub-contrast: #1e1e2e;
+  --warn: #f9e2af; --err: #f38ba8; --backdrop: rgba(17, 17, 27, .6);
+}
+html[data-theme="dracula"] {
+  --bg: #282a36; --panel: #21222c; --panel-2: #343746; --line: #44475a;
+  --text: #f8f8f2; --dim: #8b96c5;
+  --orig: #bd93f9; --dub: #50fa7b; --dub-contrast: #282a36;
+  --warn: #ffb86c; --err: #ff5555; --backdrop: rgba(18, 19, 26, .65);
+}
+:root {
+  --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px/1.35 var(--sans); }
+button { font: inherit; cursor: pointer; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); border-radius: 5px; padding: 3px 10px; }
+button:hover { border-color: var(--dim); }
+button:focus-visible, input:focus-visible, textarea:focus-visible,
+select:focus-visible { outline: 2px solid var(--dub); outline-offset: 1px; }
+button.primary { background: var(--dub); border-color: var(--dub);
+  color: var(--dub-contrast); font-weight: 600; }
+button.primary:hover { filter: brightness(1.08); }
+button.danger:hover { border-color: var(--err); color: var(--err); }
+button:disabled { opacity: .45; cursor: default; }
+input[type=text], input[type=number], textarea, select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 5px; padding: 3px 7px; font: inherit; }
+/* no spinner buttons anywhere — they eat width and misclick */
+input[type=number] { appearance: textfield; -moz-appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+code, .mono { font-family: var(--mono); }
+.dim { color: var(--dim); }
+
+/* ---- app bar ---- */
+.appbar { display: flex; align-items: baseline; gap: 12px; padding: 8px 16px;
+  border-bottom: 1px solid var(--line); }
+.appbar h1 { font-size: 15px; margin: 0; letter-spacing: .4px; font-weight: 600; }
+.appbar h1 a { color: var(--text); text-decoration: none; }
+.appbar h1 .orig { color: var(--orig); } .appbar h1 .dub { color: var(--dub); }
+.appbar .crumb { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+.appbar .spacer { flex: 1; }
+.theme-pick { font-family: var(--mono); font-size: 11.5px; padding: 2px 5px; }
+
+/* ---- project center ---- */
+.pc-wrap { max-width: 1100px; margin: 0 auto; padding: 16px 20px; }
+.pc-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.pc-head form { display: flex; gap: 8px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 11px; margin-top: 13px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  overflow: hidden; display: flex; flex-direction: column; transition: border-color .12s; }
+.card:hover { border-color: var(--dim); }
+.card .thumb { aspect-ratio: 16/9; background: var(--panel-2); display: grid;
+  place-items: center; color: var(--dim); font-family: var(--mono); font-size: 12px;
+  cursor: pointer; background-size: cover; background-position: center; }
+.card .body { padding: 7px 10px 9px; display: flex; flex-direction: column; gap: 4px; }
+.card .name { font-weight: 600; cursor: pointer; }
+.card .stats { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+.voicebar { height: 5px; border-radius: 3px;
+  background: color-mix(in srgb, var(--orig) 45%, var(--panel-2)); overflow: hidden; }
+.voicebar > i { display: block; height: 100%; background: var(--dub); }
+.card .row { display: flex; justify-content: space-between; align-items: center; }
+.empty { color: var(--dim); text-align: center; padding: 60px 0; font-family: var(--mono); }
+
+/* ---- project page: 2 columns x 2 collapsible panes each ---- */
+.pp { display: grid; grid-template-columns: minmax(340px, 44%) 1fr;
+  gap: 8px; padding: 8px 10px; height: calc(100vh - 40px); }
+.pp-col { display: grid; gap: 8px; min-height: 0; }
+#col-left  { grid-template-rows: fit-content(66%) 1fr; }
+  /* upload sizes to its content (video aspect + buttons) capped at 2/3;
+     the Sub Center always takes everything left over */
+#col-right { grid-template-rows: fit-content(30%) 1fr; }
+  /* speakers size to content capped at 30%; Dub Center takes the rest */
+/* collapse: the other pane takes the remaining space */
+#col-left:has(#upload-center.collapsed):not(:has(#sub-center.collapsed)) { grid-template-rows: auto 1fr; }
+#col-left:has(#sub-center.collapsed):not(:has(#upload-center.collapsed)) { grid-template-rows: 1fr auto; }
+#col-left:has(#upload-center.collapsed):not(:has(#sub-center.collapsed)) { grid-template-rows: auto 1fr; }
+#col-left:has(#upload-center.collapsed):has(#sub-center.collapsed) { grid-template-rows: auto auto 1fr; }
+#col-right:has(#speaker-center.collapsed):not(:has(#dub-center.collapsed)) { grid-template-rows: auto 1fr; }
+#col-right:has(#dub-center.collapsed):not(:has(#speaker-center.collapsed)) { grid-template-rows: 1fr auto; }
+#col-right:has(#speaker-center.collapsed):has(#dub-center.collapsed) { grid-template-rows: auto auto 1fr; }
+@media (max-width: 900px) { .pp { grid-template-columns: 1fr; height: auto; } }
+
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.pane > h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+  color: var(--dim); font-weight: 600; margin: 0; padding: 5px 10px;
+  border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px;
+  flex: 0 0 auto; user-select: none; }
+.pane.collapsed > h2 { border-bottom: none; }
+.pane-toggle { background: none; border: none; padding: 0 3px; color: var(--dim);
+  font-size: 10px; line-height: 1; }
+.pane-toggle:hover { color: var(--text); border: none; }
+.pane-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 7px 10px; }
+.pane.collapsed .pane-body { display: none; }
+.dirty-flag { color: var(--warn); font-size: 10.5px; margin-left: auto; }
+
+/* ---- toolbars shared by sub/speaker/dub panes ---- */
+.bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 6px; }
+.bar .mono { font-size: 11.5px; }
+.bar .err { color: var(--err); }
+.bar .ok { color: var(--dub); }
+
+/* ---- upload center ---- */
+.uc-src-toggle { display: flex; gap: 6px; margin-bottom: 6px; }
+/* active state comes from the shared button.primary class (applied in JS)
+   so it always matches every other primary button exactly */
+video { width: 100%; border-radius: 6px; background: #000; border: 1px solid var(--line); }
+.uc-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.uc-status { margin-top: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+  white-space: pre-wrap; }
+.uc-status.err { color: var(--err); }
+.uc-status.ok { color: var(--dub); }
+.filecard { margin-top: 7px; padding: 4px 8px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono); font-size: 11.5px;
+  display: flex; justify-content: space-between; gap: 8px; }
+
+/* ---- sub center ---- */
+.subs-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.subs-table th { position: sticky; top: -7px; background: var(--panel); z-index: 2;
+  text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--dim); padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.subs-table td { padding: 1px 4px; border-bottom: 1px solid
+  color-mix(in srgb, var(--line) 45%, transparent); vertical-align: middle; }
+.subs-table tr.dirty { background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.subs-table tbody tr:hover { background: color-mix(in srgb, var(--dim) 14%, transparent); }
+.subs-table tbody tr.dirty:hover { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.subs-table .ts { font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+  white-space: nowrap; }
+.subs-table select { padding: 0 3px; font-size: 11px; max-width: 110px;
+  background: transparent; border-color: transparent; }
+.subs-table select:hover, .subs-table select:focus { border-color: var(--line);
+  background: var(--bg); }
+.subs-table td.txt { line-height: 1.3; }
+
+/* ---- speaker center ---- */
+.sc-list { display: flex; flex-direction: column; gap: 5px; }
+.sc-card { background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 8px 5px; }
+.sc-card:hover { border-color: var(--dim);
+  background: color-mix(in srgb, var(--dim) 12%, var(--panel-2)); }
+.sc-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sc-name { flex: 0 1 120px; }
+.sc-head .caret { background: none; border: none; padding: 0 2px; color: var(--dim);
+  font-size: 10px; }
+.sc-head .has-clips { color: var(--dub); font-size: 11px; }
+.sc-head .warn-pin { color: var(--warn); font-size: 10px; white-space: nowrap; }
+.sc-warn { color: var(--warn); font-size: 11.5px; padding: 4px 2px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  margin-bottom: 6px; }
+.sc-pin { padding: 0 4px; font-size: 11px; line-height: 1.4; flex: 0 0 auto;
+  opacity: .45; background: transparent; border-color: transparent; }
+.sc-pin.active { opacity: 1; }
+.sc-pin:hover { border-color: var(--line); }
+.sc-clip .active-tag { color: var(--dub); font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: .3px; flex: 0 0 auto; }
+.sc-name { font-weight: 600; background: transparent; border-color: transparent;
+  padding: 0 4px; min-width: 0; }
+.sc-name:hover, .sc-name:focus { border-color: var(--line); background: var(--bg); }
+.sc-head .meta { white-space: nowrap; font-size: 10.5px; cursor: pointer;
+  margin-left: auto; }
+.sc-head .sc-field { flex: 0 0 auto; }
+.sc-field { display: flex; align-items: center; gap: 3px; font-size: 10.5px; }
+.sc-field input { width: 52px; padding: 0 5px; font-family: var(--mono); font-size: 11px; }
+.sc-field input.explicit { border-color: var(--orig); }
+.sc-clips { display: flex; flex-direction: column; gap: 0; margin-top: 3px; }
+.sc-clip { display: flex; align-items: center; gap: 6px; font-size: 11px;
+  padding: 0 2px; border-radius: 4px; line-height: 1.6; }
+.sc-clip:hover { background: color-mix(in srgb, var(--bg) 55%, transparent); }
+.sc-clip .num { color: var(--dim); }
+.sc-clip .clip-text { flex: 1; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; min-width: 0; }
+.sc-clip .dur { color: var(--dim); font-size: 10.5px; white-space: nowrap; }
+.sc-clip.short .dur { color: var(--warn); }
+.sc-play, .sc-del { padding: 0 6px; font-size: 10px; line-height: 1.4; flex: 0 0 auto; }
+
+/* ---- dub center ---- */
+.dc-options { padding: 1px 0 4px; margin-bottom: 0; font-size: 11.5px; }
+.dc-opt { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.dc-bulk { padding: 2px 0 4px; border-bottom: 1px solid
+  color-mix(in srgb, var(--line) 55%, transparent); margin-bottom: 4px; }
+.dc-bulk input, .dc-bulk select { font-family: var(--mono); font-size: 11px;
+  padding: 1px 5px; }
+.dc-bulk input[type=number], .dc-bulk input[type=text] { width: 52px; }
+.dc-instr-group { display: inline-flex; align-items: center; gap: 4px; }
+.dc-clear-instr { display: inline-flex; align-items: center; gap: 2px;
+  font-size: 10.5px; color: var(--dim); white-space: nowrap; }
+.dc-bulk select { max-width: 96px; }
+
+.dc-wrap { overflow-x: auto; }
+.dc-table { border-collapse: collapse; font-size: 11px; width: 100%; min-width: 880px; }
+.dc-table th { position: sticky; top: -7px; background: var(--panel); z-index: 2;
+  text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--dim); padding: 3px 3px; border-bottom: 1px solid var(--line);
+  white-space: nowrap; }
+.dc-table td { padding: 0 2px; border-bottom: 1px solid
+  color-mix(in srgb, var(--line) 40%, transparent); white-space: nowrap; }
+.dc-table tbody tr:hover { background: color-mix(in srgb, var(--dim) 14%, transparent); }
+.dc-table input, .dc-table select { padding: 0 3px; font-size: 11px;
+  font-family: var(--mono); border-radius: 3px; background: transparent;
+  border: 1px solid transparent; }
+.dc-table input:hover, .dc-table select:hover,
+.dc-table input:focus, .dc-table select:focus { border-color: var(--line);
+  background: var(--bg); }
+.dc-table input.ovr, .dc-table select.ovr { border-color: var(--orig); }
+.dc-table td.txt input { font-family: var(--sans); width: 100%; min-width: 150px; }
+.dc-table td.txt.orig input { min-width: 120px; color: var(--dim); }
+.dc-table td.txt.orig input:focus { color: var(--text); }
+.dc-table .w-instr input { width: 110px; font-family: var(--sans); }
+.dc-table .w-num input { width: 58px; }
+.dc-table .w-sm input { width: 42px; }
+.dc-table .w-lang input { width: 34px; }
+.dc-table select.spk { max-width: 92px; }
+.dc-table select.fit { width: 68px; }
+.dc-table .ratio { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+.dc-table .ratio.hard { color: var(--warn); }
+.badge { font-family: var(--mono); font-size: 11px; cursor: default; }
+.b-never { color: var(--dim); }
+.b-clean { color: var(--dub); }
+.b-needs_light { color: var(--warn); }
+.b-needs_full { color: var(--orig); }
+.b-generating { color: var(--warn); animation: pulse 1s infinite; }
+.b-failed { color: var(--err); cursor: help; }
+@keyframes pulse { 50% { opacity: .35; } }
+.dc-play { padding: 0 6px; font-size: 10px; line-height: 1.4; }
+
+/* ---- modal ---- */
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px; width: min(860px, 92vw); }
+dialog::backdrop { background: var(--backdrop); }
+dialog h3 { margin: 0 0 10px; font-size: 14px; }
+dialog textarea { width: 100%; height: 55vh; font-family: var(--mono); font-size: 12px;
+  resize: vertical; white-space: pre; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.confirm-note { color: var(--warn); font-size: 12.5px; margin: 8px 0 0; }
+
+.placeholder-pane { color: var(--dim); font-family: var(--mono); font-size: 11.5px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

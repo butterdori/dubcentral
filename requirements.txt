@@ -1,0 +1,19 @@
+# Phase 0-1 (no GPU/audio yet)
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic>=2
+pytest
+
+# Later phases (uncomment as they land):
+srt
+numpy            # demucs needs it at runtime; torch does NOT pull it in itself
+pydub            # Phase 2+: slicing/overlay/mixing
+demucs           # Phase 2: vocal separation (pulls torch; install the CUDA
+                 # build first if pip would otherwise grab CPU-only torch)
+chatterbox-tts   # Phase 3: TTS (needs the Python 3.11 venv; brings torchaudio)
+onnxruntime      # resemble-perth's watermarker needs it (perth silently
+                 # degrades to None without it -> 'NoneType' not callable)
+setuptools<81    # resemble-perth imports pkg_resources, removed in newer
+                 # setuptools; same silent-None failure if missing
+# torch / torchaudio: install the CUDA build matching your driver

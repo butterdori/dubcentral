@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dub Console — Projects</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+</head>
+<body>
+  <header class="appbar">
+    <h1><a href="/"><span class="orig">dub</span><span class="dub">console</span></a></h1>
+    <span class="crumb">projects</span>
+    <span class="spacer"></span>
+    <select class="theme-pick" aria-label="Color theme"></select>
+  </header>
+
+  <main class="pc-wrap">
+    <div class="pc-head">
+      <div class="dim mono" id="count"></div>
+      <form id="create-form">
+        <input type="text" id="new-name" placeholder="New project name" maxlength="120" required>
+        <button class="primary" type="submit">Create project</button>
+      </form>
+    </div>
+    <div class="grid" id="projects"></div>
+    <div class="empty" id="empty" hidden>no projects yet — create one above</div>
+  </main>
+
+  <dialog id="confirm-dlg">
+    <h3 id="confirm-title"></h3>
+    <p class="dim" id="confirm-text"></p>
+    <div class="modal-foot">
+      <button id="confirm-cancel">Cancel</button>
+      <button class="danger" id="confirm-ok">Delete project</button>
+    </div>
+  </dialog>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/project-center.js"></script>
+</body>
+</html>
