@@ -4,3 +4,5 @@ __pycache__/
 backend/storage/
 backend/hf_cache/
 backend/vendor/
+.venv/
+.venv-*/
