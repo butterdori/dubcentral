@@ -21,7 +21,9 @@ cd -
 
 # Download CosyVoice model (~1.5 GB)
 python -c "from huggingface_hub import snapshot_download; snapshot_download('FunAudioLLM/Fun-CosyVoice3-0.5B-2512', local_dir='backend/hf_cache/Fun-CosyVoice3-0.5B')"
-python -m pytest backend/tests -q #124 tests expected
+
+# Run tests (124 expected)
+python -m pytest backend/tests -q
 
 # Start server
 uvicorn backend.main:app --host 0.0.0.0 --port 8765
