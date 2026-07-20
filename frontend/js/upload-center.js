@@ -34,7 +34,7 @@ function confirmDlg(title, text) {
 async function refresh() {
   meta = await api.get(P);
   $('#crumb').textContent = meta.name;
-  document.title = `Dub Console — ${meta.name}`;
+  document.title = `dubcentral — ${meta.name}`;
 
   const player = $('#player');
   const toggle = $('#uc-src-toggle');
