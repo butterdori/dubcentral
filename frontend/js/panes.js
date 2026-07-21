@@ -1,6 +1,4 @@
-/* Collapsible panes: click the caret in a pane header to collapse it to just
-   its title bar; the other pane in the same column takes the freed space
-   (grid rules in style.css via :has()). State persists per pane. */
+/* Collapsible panes*/
 (() => {
   const KEY = 'dubconsole-collapsed';
   let state = {};
@@ -21,7 +19,6 @@
       apply();
     };
     btn.addEventListener('click', toggle);
-    // double-click anywhere on the title bar also toggles
     h2.addEventListener('dblclick', toggle);
     apply();
   });

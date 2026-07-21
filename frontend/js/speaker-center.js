@@ -1,9 +1,4 @@
-/* Speaker Center: extraction job (with live status via /jobs/current polling),
-   speaker cards — rename, four inheritable defaults with inherited-value
-   placeholders, add speaker — and per-speaker clip lists with play + prune.
-
-   Exposes window.speakerCenter.reload() so other panes (upload resets) can
-   refresh it, and window.jobWatch for shared job polling. */
+/* Speaker Center: extraction, speaker cards (rename, inherit values), prune*/
 
 (() => {
   const root = $('#sc-body');
@@ -78,8 +73,7 @@
             title: 'Rebuild each speaker\'s CosyVoice reference from their ' +
                    'currently pinned (📌) clips, concatenated into one file. ' +
                    'Speakers with no clips pinned fall back to auto-picking ' +
-                   'a single best clip. This is also where affected lines ' +
-                   'get flagged for regen — pinning alone does not.' },
+                   'a single best clip.' },
             'Renew reference' + (anyDirty ? ' •' : ''))
         ] : []),
         el('span', { class: 'sc-job mono dim', id: 'sc-job' })),

@@ -1,20 +1,18 @@
-/* Fetch wrappers. Every non-2xx becomes a thrown Error carrying the server's
-   `detail` message so callers can surface real validation text, never a
-   silent failure. */
 const api = {
   async _handle(res) {
-    if (res.ok) {
-      const ct = res.headers.get('content-type') || '';
-      return ct.includes('application/json') ? res.json() : res.text();
-    }
-    let msg = `${res.status} ${res.statusText}`;
-    try {
-      const body = await res.json();
-      if (body.detail) msg = typeof body.detail === 'string'
-        ? body.detail : JSON.stringify(body.detail);
-    } catch (_) { /* non-JSON error body */ }
-    throw new Error(msg);
-  },
+  if (res.ok) {
+    if (res.status === 204) return undefined;
+    const ct = res.headers.get('content-type') || '';
+    return ct.includes('application/json') ? res.json() : res.text();
+  }
+  let msg = `${res.status} ${res.statusText}`;
+  try {
+    const body = await res.json();
+    if (body.detail) msg = typeof body.detail === 'string'
+      ? body.detail : JSON.stringify(body.detail);
+  } catch (_) { /* non-JSON error body */ }
+  throw new Error(msg);
+},
 
   get(path)  { return fetch(path).then(r => api._handle(r)); },
   del(path)  { return fetch(path, { method: 'DELETE' }).then(r => api._handle(r)); },
@@ -42,7 +40,7 @@ const api = {
     return fetch(path, { method: 'POST', body: fd }).then(r => api._handle(r));
   },
 
-  // jobs polling helper (used from Phase 2 on): calls onTick(status) every
+  // jobs polling helper, calls onTick(status) every
   // intervalMs until stop() is invoked or the endpoint reports idle.
   pollJobs(onTick, intervalMs = 1000) {
     let stopped = false;

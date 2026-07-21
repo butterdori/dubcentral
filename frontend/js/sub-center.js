@@ -1,12 +1,6 @@
-/* Sub Center: the diarization workspace. One row per subtitle line —
-   [checkbox | speaker dropdown | timestamp | text]. Assignments are LOCAL
-   until Save (batch PATCH); the server — and therefore clip extraction and
-   dubbing — only ever sees saved state. Revert rebuilds from the original
-   uploaded SRT; Download exports the current lines as an SRT.
-
-   With no speakers yet, the dropdown's only real entry is "+ add speaker",
-   which creates speaker1 / speaker2 / … and assigns it (rename later in the
-   Speaker Center). */
+/* Sub Center: Diarization. Assignments are LOCAL until Save. Clip extraction and
+   dubbing only sees saved state. Revert rebuilds from the original
+   uploaded SRT; Download exports the current lines as an SRT.*/
 
 (() => {
   const root = $('#subs-body');

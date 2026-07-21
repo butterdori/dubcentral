@@ -1,6 +1,6 @@
 /* Upload Center: video player + uploads + CSV editor.
    Destructive actions (SRT upload onto existing lines, CSV editor save, CSV
-   re-upload) confirm before firing — the API resets unconditionally. */
+   re-upload) confirm before firing. */
 
 const KEY = new URLSearchParams(location.search).get('p');
 if (!KEY) location.href = '/';
@@ -45,7 +45,7 @@ async function refresh() {
     dubBtn.disabled = !meta.has_final;
     dubBtn.title = meta.has_final ? 'Play the Final Remix output'
                                   : 'Run Final Remix first';
-    if (videoSrc === 'dubbed' && !meta.has_final) videoSrc = 'original';  // fell out of date
+    if (videoSrc === 'dubbed' && !meta.has_final) videoSrc = 'original';
     const src = videoSrc === 'dubbed'
       ? `${P}/remix/video?ts=${meta.modified_at}`
       : `${P}/video?ts=${meta.modified_at}`;
@@ -175,7 +175,6 @@ $('#csv-save').onclick = async () => {
     await refresh();
     window.refreshPanes();
   } catch (e) {
-    // keep the dialog open so the edit isn't lost; surface the row error
     status(e.message, 'err');
     alert(e.message);
   }

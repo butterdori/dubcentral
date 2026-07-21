@@ -6,6 +6,11 @@
     ['nord-light', 'Nord Light'],
     ['nord-dark', 'Nord Dark'],
     ['catppuccin', 'Catppuccin'],
+    ['catppuccin-latte', 'Catppuccin Latte'],
+    ['tokyo-night', 'Tokyo Night'],
+    ['one-half-dark', 'One Half Dark'],
+    ['one-half-light', 'One Half Light'],
+    ['oled-black', 'OLED Black'],
     ['dracula', 'Dracula'],
   ];
   const KEY = 'dubconsole-theme';

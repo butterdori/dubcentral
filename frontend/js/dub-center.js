@@ -1,18 +1,4 @@
-/* Dub Center: the per-line grid.
-   [✓ | # | start | end | speaker | text | lang | exag | cfg | tol | fit |
-    factor | ratio | badge | ▶]
-
-   Inheritable columns (lang/exag/cfg/tol/fit/factor) show the EFFECTIVE
-   value as the actual field value — speaker/project defaults appear directly
-   in the grid. A purple outline marks a line-level override; clearing the
-   field (or picking "↩ inherit") drops the override and the inherited value
-   comes back. Edits fire immediately; badges flip per the server's
-   transition table — never computed here.
-
-   The bulk bar applies speaker/lang/exag/cfg/tol/fit/fac to every selected
-   line in one list-PATCH. Dub All processes every line needing work; Dub
-   Selected processes exactly the checked lines. Final Remix splices dubbed
-   windows onto the original audio and muxes the output video. */
+/* Dub Center per-line grid.*/
 
 (() => {
   const root = $('#dc-body');
@@ -32,7 +18,7 @@
     speed: 'CosyVoice native speed knob: the model GENERATES at this pace (full regen). Time-fit/atempo still applies on top.',
     instr: 'CosyVoice style instruction in plain words, e.g. "speak with quiet urgency" — empty = plain voice cloning',
     orig: 'original-language line text — the reference clip\'s transcript for CosyVoice voice cloning (upload the original SRT to fill these)',
-    engine: 'per-project synthesis engine. Switching flips every dubbed line to full-regen and clears the other engine\'s knob overrides.',
+    engine: 'per-project synthesis engine. Switching needs to redub all lines.',
   };
 
   const BADGE = {
@@ -130,7 +116,7 @@
         const out = await api.send('PUT', `${P}/dub/cuda`, { value: wantEnabled });
         data.cuda_enabled = out.cuda_enabled;
         status(out.cuda_enabled ? 'CUDA enabled — GPU used for dubbing when available'
-                                : 'CUDA disabled — TTS/dubbing forced to CPU (Demucs still uses GPU)');
+                                : 'CUDA disabled — TTS forced to CPU');
       } catch (e) { cudaCb.checked = !wantEnabled; status(e.message, true); }
     };
     return el('div', { class: 'bar dc-options' },
@@ -143,13 +129,10 @@
                'original speech play through.' },
         cb, ' Timestamp mute'),
       el('label', { class: 'dc-opt',
-        title: 'Force TTS generation (dubbing) onto CPU for this project, ' +
-               'regardless of CUDA availability — a troubleshooting ' +
-               'override for GPU/VRAM issues. Demucs separation (Speaker ' +
-               'Center extraction, and Final Remix) always uses GPU when ' +
-               'available and is unaffected. Takes effect on the next dub ' +
-               'run, never mid-run.' },
-        cudaCb, ' Force CPU (dubbing only)'));
+        title: 'Force TTS generation onto CPU' +
+               'Override for GPU/VRAM issues. Demucs separation (Speaker ' +
+               'Center extraction, and Final Remix) always uses GPU.' },
+        cudaCb, ' Force CPU'));
   }
 
   /* ---- bulk-set bar: apply fields to every selected line in one PATCH ---- */
@@ -166,9 +149,7 @@
       placeholder: cosy ? 'instr' : 'cfg', title: cosy ? HINT.instr : HINT.cfg });
     const clearInstr = el('input', { type: 'checkbox',
       title: 'Clear instr (revert to inherited/blank) for selected lines, ' +
-             'instead of setting new text — the text box alone can\'t ' +
-             'express "erase everything" since a blank box normally just ' +
-             'means "leave this field alone".' });
+             'instead of setting new text.' });
     clearInstr.onchange = () => { if (clearInstr.checked) cfg.value = ''; cfg.disabled = clearInstr.checked; };
     cfg.oninput = () => { if (cfg.value) { clearInstr.checked = false; cfg.disabled = false; } };
     const tol  = el('input', { type: 'number', step: '0.05', placeholder: 'tol',  title: HINT.tol });
@@ -244,8 +225,7 @@
       el('tbody', {}, ...data.rows.map(r => rowEl(r))));
   }
 
-  /* inheritable field input: effective value shown AS the value; purple
-     outline = line override; empty -> clear override (re-inherit) */
+  /* inheritable field input*/
   function numInput(r, field, opts = {}) {
     const f = r.fields[field];
     return el('input', {
@@ -423,10 +403,6 @@
   }
 
   /* --------------------- live updates via polling ---------------------- */
-  /* Same fix as speaker-center.js: report a job's terminal status once per
-     job id, regardless of whether we ever observed it "active" first — a
-     dub run over already-clean lines, or a cached-Demucs remix, can finish
-     faster than one poll interval. */
 
   const reportedJobIds = new Set();
   let seenFirstPoll = false;

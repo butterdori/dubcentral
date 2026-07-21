@@ -1,5 +1,4 @@
-/* Project Center: card grid (thumbnail, stats, dual-voice completion bar),
-   create, delete-with-confirmation, recency sort comes from the API. */
+/* Project Center: card grid (thumbnail, stats, dual-voice completion bar) */
 
 async function refresh() {
   const { projects } = await api.get('/api/projects');
