@@ -3,6 +3,8 @@
 Self-hosted, single-user web app for dubbing video using a pre-translated, timestamped subtitle (srt) file and the original video file, with manual speaker diarization.  
 Pipeline: Upload subtitle → Assign speakers (diarization) → Demucs vocal/background separation → per-speaker reference clip extraction and pruning → TTS generation per line → time-fitting → final splice and mux.
 
+In development; works best with one process at a time.
+
 ![Screenshot](images/screenshot.png)
 
 ## Prerequisites  
