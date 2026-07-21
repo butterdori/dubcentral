@@ -12,6 +12,7 @@ pydub            # Phase 2+: slicing/overlay/mixing
 demucs           # Phase 2: vocal separation (pulls torch; install the CUDA
                  # build first if pip would otherwise grab CPU-only torch)
 chatterbox-tts   # Phase 3: TTS (needs the Python 3.11 venv; brings torchaudio)
+requests          # Phase 6: HTTP client for the CrispASR engine
 onnxruntime      # resemble-perth's watermarker needs it (perth silently
                  # degrades to None without it -> 'NoneType' not callable)
 setuptools<81    # resemble-perth imports pkg_resources, removed in newer

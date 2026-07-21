@@ -35,7 +35,7 @@ THUMB_NAME = "thumb.jpg"
 
 # Directories derived from line/speaker state — wiped on CSV/SRT reset.
 # separated/ is per-VIDEO (Demucs on the full file), so it survives resets.
-DERIVED_DIRS = ("speaker_clips", "refs", "dub_work")
+DERIVED_DIRS = ("speaker_clips", "refs", "dub_work", "test_speech")
 
 
 def project_key(name: str) -> str:

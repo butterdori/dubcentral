@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from .. import store
 from ..job_queue import Busy, jobs
 from ..models.project_state import INHERITABLE_FIELDS, StateError
-from ..pipeline import demucs_runner, reference_clips, tts_cosyvoice
+from ..pipeline import demucs_runner, reference_clips, tts_chatterbox, tts_cosyvoice, tts_crispasr
 from .projects import get_state_or_404
 
 router = APIRouter(prefix="/projects/{key}", tags=["speakers"])
@@ -84,6 +84,7 @@ def _speaker_payload(ps, project_dir, spk: str) -> dict:
         "ref_pins": ref_pins,
         "ref_pins_committed": ref_pins_committed,
         "ref_dirty": ref_pins != ref_pins_committed,
+        "has_test_speech": test_speech_path(project_dir, spk).exists(),
     }
 
 
@@ -211,6 +212,90 @@ def set_reference_pins(key: str, spk: str, body: SetRefPins):
             raise HTTPException(code, str(e)) from None
         ps.save()
         return _speaker_payload(ps, d, spk)
+
+
+class TestSpeech(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+def test_speech_path(project_dir, spk: str):
+    return project_dir / "test_speech" / f"{spk}.wav"
+
+
+@router.post("/speakers/{spk}/test_speech", status_code=202)
+def generate_test_speech(key: str, spk: str, body: TestSpeech):
+    """Synthesize body.text using this speaker's CURRENT effective
+    reference and knobs -- the exact same reference-selection/knob-
+    resolution the real dub loop would use for this speaker (committed
+    multi-pin concat, or auto-pick, or chatterbox's concatenated refs),
+    just with arbitrary text and no line/badge bookkeeping. Lets you
+    sanity-check a voice -- especially right after pinning/renewing --
+    without needing to dub a real line first."""
+    ps0 = get_state_or_404(key)
+    d = store.project_dir(key)
+    try:
+        ps0.speaker(spk)
+    except StateError as e:
+        raise HTTPException(404, str(e)) from None
+
+    def run(job):
+        with store.locked(key):
+            ps = store.load(key)
+        engine = ps.data.get("engine", "chatterbox")
+        force_cpu = not ps.data.get("cuda_enabled", True)
+        fields = ps.resolve({"speaker": spk, "overrides": {}})
+        out = test_speech_path(d, spk)
+        job.set_message(f"generating test speech [{engine}]…")
+
+        if engine == "cosyvoice3":
+            ref_wav, prompt_text = tts_cosyvoice.select_reference(ps, d, spk)
+            dur = tts_cosyvoice.synthesize_line(
+                text=body.text, prompt_text=prompt_text, ref_path=ref_wav,
+                speed=fields["speed"]["value"],
+                instruct_text=fields["instruct_text"]["value"],
+                out_path=out, force_cpu=force_cpu)
+        elif engine == "crispasr":
+            ref_wav, prompt_text = tts_crispasr.select_reference(ps, d, spk)
+            dur = tts_crispasr.synthesize_line(
+                text=body.text, prompt_text=prompt_text, ref_path=ref_wav,
+                backend=fields["crispasr_backend"]["value"],
+                out_path=out, force_cpu=force_cpu)
+        else:
+            ref_path = tts_chatterbox.ensure_reference(ps, d, spk)
+            dur = tts_chatterbox.synthesize_line(
+                text=body.text, language=fields["dub_language"]["value"],
+                ref_path=ref_path, exaggeration=fields["exaggeration"]["value"],
+                cfg_weight=fields["cfg_weight"]["value"], out_path=out,
+                force_cpu=force_cpu)
+        job.set_message("done")
+        return {"speaker": spk, "duration_s": round(dur, 2), "engine": engine}
+
+    try:
+        job = jobs.submit("test_speech", key, run)
+    except Busy as e:
+        raise HTTPException(409, str(e)) from None
+    return {"job": job.snapshot()}
+
+
+@router.get("/speakers/{spk}/test_speech/audio")
+def get_test_speech_audio(key: str, spk: str):
+    """Inline-playable (no forced download) -- for the Speaker Center's
+    play button."""
+    get_state_or_404(key)
+    p = test_speech_path(store.project_dir(key), spk)
+    if not p.exists():
+        raise HTTPException(404, "no test speech generated yet")
+    return FileResponse(p, media_type="audio/wav")
+
+
+@router.get("/speakers/{spk}/test_speech/download")
+def download_test_speech(key: str, spk: str):
+    get_state_or_404(key)
+    p = test_speech_path(store.project_dir(key), spk)
+    if not p.exists():
+        raise HTTPException(404, "no test speech generated yet")
+    return FileResponse(p, media_type="audio/wav",
+                        filename=f"{key}_{spk}_test.wav")
 
 
 @router.post("/renew_reference", status_code=202)

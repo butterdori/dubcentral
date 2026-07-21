@@ -278,7 +278,7 @@ def test_grid_shape(ps):
     r1 = rows[0]
     assert r1["slot_s"] == 2.0
     assert set(r1["fields"]) == {"dub_language", "exaggeration", "cfg_weight",
-                                 "speed", "instruct_text",
+                                 "speed", "instruct_text", "crispasr_backend",
                                  "tolerance", "fit_mode", "manual_factor"}
     assert r1["fields"]["dub_language"]["source"] == "project"
     # speakerless line resolves entirely from project defaults, never dubbed

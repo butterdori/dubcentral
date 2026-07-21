@@ -17,6 +17,7 @@
     lang: 'dub language code (e.g. ko, ja, en)',
     speed: 'CosyVoice native speed knob: the model GENERATES at this pace (full regen). Time-fit/atempo still applies on top.',
     instr: 'CosyVoice style instruction in plain words, e.g. "speak with quiet urgency" — empty = plain voice cloning',
+    crispasrBackend: 'which of CrispASR\'s hosted TTS backends to use for this line (e.g. "cosyvoice3"). CrispASR runs as a separate server.',
     orig: 'original-language line text — the reference clip\'s transcript for CosyVoice voice cloning (upload the original SRT to fill these)',
     engine: 'per-project synthesis engine. Switching needs to redub all lines.',
   };
@@ -87,17 +88,29 @@
                  : 'original audio muted only for the dub\'s own duration'));
       } catch (e) { cb.checked = !want; status(e.message, true); }
     };
-    const eng = el('select', { class: 'mono', title: HINT.engine },
+    const eng = el('select', { class: 'mono', title: HINT.engine +
+      ' crispasr runs as a SEPARATE server process — this app has no ' +
+      'visibility into or control over its GPU/VRAM usage (independent of ' +
+      'the Force CPU checkbox, which does nothing for this engine unless ' +
+      'you\'ve configured a second CPU-only instance).' },
       el('option', { value: 'chatterbox' }, 'engine: chatterbox'),
-      el('option', { value: 'cosyvoice3' }, 'engine: cosyvoice3'));
+      el('option', { value: 'cosyvoice3' }, 'engine: cosyvoice3'),
+      el('option', { value: 'crispasr' }, 'engine: crispasr'));
     eng.value = data.engine;
     eng.onchange = async () => {
       const want = eng.value;
       if (want === data.engine) return;
+      const crispWarn = want === 'crispasr'
+        ? '\n\ncrispasr runs as a separate server process this app doesn\'t ' +
+          'manage — make sure it\'s actually running at the configured URL, ' +
+          'and note the Force CPU checkbox has no effect on it unless a ' +
+          'second CPU-only instance is set up.'
+        : '';
       if (!confirm(`Switch engine to ${want}?\n\nEvery dubbed line flips to ` +
                    'full-regen (different engine = different audio), and the ' +
                    'other engine\'s knob overrides and speaker defaults are ' +
-                   'cleared. Timing, text, speakers, and clips are untouched.')) {
+                   'cleared. Timing, text, speakers, and clips are untouched.' +
+                   crispWarn)) {
         eng.value = data.engine;
         return;
       }
@@ -116,7 +129,7 @@
         const out = await api.send('PUT', `${P}/dub/cuda`, { value: wantEnabled });
         data.cuda_enabled = out.cuda_enabled;
         status(out.cuda_enabled ? 'CUDA enabled — GPU used for dubbing when available'
-                                : 'CUDA disabled — TTS forced to CPU');
+                                : 'CUDA disabled — TTS/dubbing forced to CPU (Demucs still uses GPU)');
       } catch (e) { cudaCb.checked = !wantEnabled; status(e.message, true); }
     };
     return el('div', { class: 'bar dc-options' },
@@ -129,10 +142,13 @@
                'original speech play through.' },
         cb, ' Timestamp mute'),
       el('label', { class: 'dc-opt',
-        title: 'Force TTS generation onto CPU' +
-               'Override for GPU/VRAM issues. Demucs separation (Speaker ' +
-               'Center extraction, and Final Remix) always uses GPU.' },
-        cudaCb, ' Force CPU'));
+        title: 'Force TTS generation (dubbing) onto CPU for this project, ' +
+               'regardless of CUDA availability — a troubleshooting ' +
+               'override for GPU/VRAM issues. Demucs separation (Speaker ' +
+               'Center extraction, and Final Remix) always uses GPU when ' +
+               'available and is unaffected. Takes effect on the next dub ' +
+               'run, never mid-run.' },
+        cudaCb, ' Force CPU (dubbing only)'));
   }
 
   /* ---- bulk-set bar: apply fields to every selected line in one PATCH ---- */
@@ -141,15 +157,22 @@
       el('option', { value: '' }, 'spk…'),
       el('option', { value: '__none' }, '— none'),
       ...Object.entries(data.speakers).map(([k, n]) => el('option', { value: k }, n)));
-    const cosy = data.engine === 'cosyvoice3';
+    const engine = data.engine;
+    const cosy = engine === 'cosyvoice3';
+    const crisp = engine === 'crispasr';
     const lang = el('input', { type: 'text', placeholder: 'lang', title: HINT.lang });
-    const exag = el('input', { type: 'number', step: '0.05',
+    const exag = crisp
+      ? el('input', { type: 'text', placeholder: 'backend', title: HINT.crispasrBackend })
+      : el('input', { type: 'number', step: '0.05',
       placeholder: cosy ? 'spd' : 'exag', title: cosy ? HINT.speed : HINT.exag });
     const cfg  = el('input', { type: cosy ? 'text' : 'number', step: '0.05',
-      placeholder: cosy ? 'instr' : 'cfg', title: cosy ? HINT.instr : HINT.cfg });
+      placeholder: cosy ? 'instr' : 'cfg', title: cosy ? HINT.instr : HINT.cfg,
+      hidden: crisp });
     const clearInstr = el('input', { type: 'checkbox',
       title: 'Clear instr (revert to inherited/blank) for selected lines, ' +
-             'instead of setting new text.' });
+             'instead of setting new text — the text box alone can\'t ' +
+             'express "erase everything" since a blank box normally just ' +
+             'means "leave this field alone".' });
     clearInstr.onchange = () => { if (clearInstr.checked) cfg.value = ''; cfg.disabled = clearInstr.checked; };
     cfg.oninput = () => { if (cfg.value) { clearInstr.checked = false; cfg.disabled = false; } };
     const tol  = el('input', { type: 'number', step: '0.05', placeholder: 'tol',  title: HINT.tol });
@@ -163,12 +186,20 @@
       const per = [];   // field/value pairs to fan out
       if (spk.value) per.push(['speaker', spk.value === '__none' ? null : spk.value]);
       if (lang.value.trim()) per.push(['dub_language', lang.value.trim()]);
+      if (crisp) {
+        if (exag.value.trim()) per.push(['crispasr_backend', exag.value.trim()]);
+      } else {
       const numPairs = cosy
         ? [[exag, 'speed'], [tol, 'tolerance'], [fac, 'manual_factor']]
         : [[exag, 'exaggeration'], [cfg, 'cfg_weight'],
            [tol, 'tolerance'], [fac, 'manual_factor']];
       for (const [inp, f] of numPairs) {
         if (inp.value !== '') per.push([f, Number(inp.value)]);
+        }
+      }
+      if (crisp) {
+        if (tol.value !== '') per.push(['tolerance', Number(tol.value)]);
+        if (fac.value !== '') per.push(['manual_factor', Number(fac.value)]);
       }
       if (cosy) {
         if (clearInstr.checked) per.push(['instruct_text', null]);
@@ -215,6 +246,9 @@
           ? [el('th', { title: HINT.orig }, 'orig text'),
              el('th', { title: HINT.speed }, 'spd'),
              el('th', { title: HINT.instr }, 'instr')]
+          : data.engine === 'crispasr'
+          ? [el('th', { title: HINT.orig }, 'orig text'),
+             el('th', { title: HINT.crispasrBackend }, 'backend')]
           : [el('th', { title: HINT.exag }, 'exag'),
              el('th', { title: HINT.cfg }, 'cfg')]),
         el('th', { title: HINT.tol }, 'tol'),
@@ -225,7 +259,8 @@
       el('tbody', {}, ...data.rows.map(r => rowEl(r))));
   }
 
-  /* inheritable field input*/
+  /* inheritable field input: effective value shown AS the value; purple
+     outline = line override; empty -> clear override (re-inherit) */
   function numInput(r, field, opts = {}) {
     const f = r.fields[field];
     return el('input', {
@@ -237,6 +272,15 @@
       onchange: ev => edit(r.line_no, field,
         ev.target.value === '' ? null : Number(ev.target.value)),
     });
+  }
+
+  /* original-language transcript cell — shared by cosyvoice3 and crispasr */
+  function origTextCell(r) {
+    return el('td', { class: 'txt orig' }, el('input', { type: 'text',
+      value: r.original_text ?? '', placeholder: '(no original text)',
+      title: HINT.orig,
+      onchange: ev => edit(r.line_no, 'original_text',
+        ev.target.value.trim() === '' ? null : ev.target.value) }));
   }
 
   function rowEl(r) {
@@ -298,11 +342,7 @@
         onchange: ev => edit(r.line_no, 'text', ev.target.value) })),
       el('td', { class: 'w-lang' }, lang),
       ...(data.engine === 'cosyvoice3'
-        ? [el('td', { class: 'txt orig' }, el('input', { type: 'text',
-             value: r.original_text ?? '', placeholder: '(no original text)',
-             title: HINT.orig,
-             onchange: ev => edit(r.line_no, 'original_text',
-               ev.target.value.trim() === '' ? null : ev.target.value) })),
+        ? [origTextCell(r),
            el('td', { class: 'w-sm' }, numInput(r, 'speed', { step: '0.05' })),
            el('td', { class: 'w-instr' }, (() => {
              const f = r.fields.instruct_text;
@@ -310,6 +350,16 @@
                class: f.source === 'line' ? 'ovr' : '',
                value: f.value, title: `${HINT.instr} (from ${f.source})`,
                onchange: ev => edit(r.line_no, 'instruct_text',
+                 ev.target.value.trim() === '' ? null : ev.target.value.trim()) });
+           })())]
+        : data.engine === 'crispasr'
+        ? [origTextCell(r),
+           el('td', { class: 'w-instr' }, (() => {
+             const f = r.fields.crispasr_backend;
+             return el('input', { type: 'text',
+               class: f.source === 'line' ? 'ovr' : '',
+               value: f.value, title: `${HINT.crispasrBackend} (from ${f.source})`,
+               onchange: ev => edit(r.line_no, 'crispasr_backend',
                  ev.target.value.trim() === '' ? null : ev.target.value.trim()) });
            })())]
         : [el('td', { class: 'w-sm' }, numInput(r, 'exaggeration')),

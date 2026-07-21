@@ -215,6 +215,14 @@ video { width: 100%; border-radius: 6px; background: #000; border: 1px solid var
 .sc-pin:hover { border-color: var(--line); }
 .sc-clip .active-tag { color: var(--dub); font-size: 9.5px; text-transform: uppercase;
   letter-spacing: .3px; flex: 0 0 auto; }
+.sc-test-row { display: flex; gap: 6px; align-items: center; padding: 6px 2px 2px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); margin-top: 4px; }
+.sc-test-input { flex: 1; min-width: 0; font-family: var(--sans); font-size: 12px; }
+.sc-test-gen { flex: 0 0 auto; }
+.sc-test-dl { display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 4px;
+  text-decoration: none; color: var(--text); font-size: 13px; }
+.sc-test-dl:hover { border-color: var(--dim); }
 .sc-name { font-weight: 600; background: transparent; border-color: transparent;
   padding: 0 4px; min-width: 0; }
 .sc-name:hover, .sc-name:focus { border-color: var(--line); background: var(--bg); }
@@ -236,6 +244,10 @@ video { width: 100%; border-radius: 6px; background: #000; border: 1px solid var
 .sc-play, .sc-del { padding: 0 6px; font-size: 10px; line-height: 1.4; flex: 0 0 auto; }
 
 /* ---- dub center ---- */
+/* Sticky toolbar stack*/
+#dc-body .bar { position: sticky; top: -7px; z-index: 5; background: var(--panel); }
+#dc-body .dc-options { position: sticky; top: 23px; z-index: 4; background: var(--panel); }
+#dc-body .dc-bulk { position: sticky; top: 47px; z-index: 3; background: var(--panel); }
 .dc-options { padding: 1px 0 4px; margin-bottom: 0; font-size: 11.5px; }
 .dc-opt { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 .dc-bulk { padding: 2px 0 4px; border-bottom: 1px solid
@@ -250,7 +262,7 @@ video { width: 100%; border-radius: 6px; background: #000; border: 1px solid var
 
 .dc-wrap { overflow-x: auto; }
 .dc-table { border-collapse: collapse; font-size: 11px; width: 100%; min-width: 880px; }
-.dc-table th { position: sticky; top: -7px; background: var(--panel); z-index: 2;
+.dc-table th { position: sticky; top: 75px; background: var(--panel); z-index: 2;
   text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px;
   color: var(--dim); padding: 3px 3px; border-bottom: 1px solid var(--line);
   white-space: nowrap; }

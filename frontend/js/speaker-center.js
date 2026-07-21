@@ -15,9 +15,15 @@
       ['instruct_text', 'instr', 'text'],
       ['tolerance', 'tol', 'number'],
     ],
+    crispasr: [
+      ['dub_language', 'lang', 'text'],
+      ['crispasr_backend', 'backend', 'text'],
+      ['tolerance', 'tol', 'number'],
+    ],
   };
   let DEFAULT_FIELDS = FIELDS_BY_ENGINE.chatterbox;
   let ENGINE = 'chatterbox';
+  const REF_PIN_ENGINES = new Set(['cosyvoice3', 'crispasr']);
 
   let playing = null;   // {audio, btn}
   const expanded = new Set();   // speaker keys with clip list open
@@ -55,19 +61,19 @@
   function render({ speakers, project_defaults, engine, has_original_text }) {
     DEFAULT_FIELDS = FIELDS_BY_ENGINE[engine] || FIELDS_BY_ENGINE.chatterbox;
     ENGINE = engine;
-    const warn = (engine === 'cosyvoice3' && !has_original_text)
+    const warn = (REF_PIN_ENGINES.has(engine) && !has_original_text)
       ? el('div', { class: 'sc-warn' },
           '⚠ No original-language text uploaded — CosyVoice needs a ' +
           'transcript of each reference clip to clone a voice. Upload the ' +
           'original SRT in the Upload Center.')
       : '';
-    const anyDirty = engine === 'cosyvoice3' && speakers.some(s => s.ref_dirty);
+    const anyDirty = REF_PIN_ENGINES.has(engine) && speakers.some(s => s.ref_dirty);
     root.replaceChildren(
       el('div', { class: 'bar' },
         el('button', { id: 'btn-extract', onclick: startExtraction },
           'Extract reference clips'),
         el('button', { onclick: addSpeaker }, 'Add speaker'),
-        ...(engine === 'cosyvoice3' ? [
+        ...(REF_PIN_ENGINES.has(engine) ? [
           el('button', { onclick: renewReference,
             class: anyDirty ? 'primary' : '',
             title: 'Rebuild each speaker\'s CosyVoice reference from their ' +
@@ -114,7 +120,7 @@
         title: 'Rename speaker (display only)',
         onchange: ev => rename(s.key, ev.target.value) }),
       ...fields,
-      (ENGINE === 'cosyvoice3' && s.ref_dirty)
+      (REF_PIN_ENGINES.has(ENGINE) && s.ref_dirty)
         ? el('span', { class: 'mono warn-pin',
             title: 'Pinned clips have changed since the reference was last ' +
                    'renewed — click "Renew reference" above to rebuild it ' +
@@ -133,8 +139,47 @@
         clips.append(el('span', { class: 'dim mono' }, 'no clips extracted'));
       }
       parts.push(clips);
+      parts.push(testSpeechRow(s));
     }
     return el('div', { class: 'sc-card' }, ...parts);
+  }
+
+  function testSpeechRow(s) {
+    const input = el('input', { type: 'text', class: 'sc-test-input',
+      placeholder: 'type a line to test this voice…',
+      title: 'Synthesizes with this speaker\'s CURRENT effective reference ' +
+             'and knobs — the same ones a real dub would use — so you can ' +
+             'sanity-check the voice without dubbing a real line.' });
+    const genBtn = el('button', { class: 'sc-test-gen' }, 'Generate');
+    const playBtn = el('button', { class: 'sc-play', title: 'Play test speech',
+      disabled: true }, '▶');
+    const dlBtn = el('a', { class: 'sc-test-dl', title: 'Download test speech',
+      href: '#', target: '_blank', style: 'pointer-events:none;opacity:.4' }, '⬇');
+
+    function setHasAudio(has) {
+      playBtn.disabled = !has;
+      dlBtn.style.pointerEvents = has ? 'auto' : 'none';
+      dlBtn.style.opacity = has ? '1' : '.4';
+      dlBtn.href = has ? `${P}/speakers/${encodeURIComponent(s.key)}/test_speech/download` : '#';
+    }
+    setHasAudio(s.has_test_speech);
+
+    genBtn.onclick = async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      genBtn.disabled = true;
+      genBtn.textContent = 'Generating…';
+      try {
+        await api.postJSON(`${P}/speakers/${encodeURIComponent(s.key)}/test_speech`,
+          { text });
+        status(`generating test speech for ${s.display_name}…`);
+      } catch (e) { status(e.message, true); genBtn.disabled = false; genBtn.textContent = 'Generate'; }
+    };
+    playBtn.onclick = () => togglePlay(s.key, '__test', playBtn,
+      `${P}/speakers/${encodeURIComponent(s.key)}/test_speech/audio`);
+
+    return el('div', { class: 'sc-test-row' },
+      input, genBtn, playBtn, dlBtn);
   }
 
   function clipRow(s, c) {
@@ -144,7 +189,7 @@
     del.onclick = () => pruneClip(s.key, c.line_no);
 
     const parts = [play];
-    if (ENGINE === 'cosyvoice3') {
+    if (REF_PIN_ENGINES.has(ENGINE)) {
       const isPinned = s.ref_pins.includes(c.line_no);
       const pin = el('button', {
         class: 'sc-pin' + (isPinned ? ' active' : ''),
@@ -160,7 +205,7 @@
     parts.push(
       el('span', { class: 'mono num' }, String(c.line_no).padStart(4, '0')),
       el('span', { class: 'clip-text', title: c.text }, c.text || '(no text)'),
-      (ENGINE === 'cosyvoice3' && c.is_reference)
+      (REF_PIN_ENGINES.has(ENGINE) && c.is_reference)
         ? el('span', { class: 'mono active-tag',
             title: 'This clip is part of the reference currently used for synthesis' },
             'active')
@@ -194,7 +239,7 @@
 
   /* ----------------------------- actions ----------------------------- */
 
-  function togglePlay(spk, lineNo, btn) {
+  function togglePlay(spk, lineNo, btn, urlOverride) {
     if (playing) {
       playing.audio.pause();
       playing.btn.textContent = '▶';
@@ -202,9 +247,11 @@
       playing = null;
       if (same) return;
     }
-    const audio = new Audio(
-      `${P}/speakers/${encodeURIComponent(spk)}/clips/${lineNo}`);
+    const url = urlOverride ||
+      `${P}/speakers/${encodeURIComponent(spk)}/clips/${lineNo}`;
+    const audio = new Audio(url + (url.includes('?') ? '&' : '?') + `ts=${Date.now()}`);
     audio.onended = () => { btn.textContent = '▶'; playing = null; };
+    audio.onerror = () => { btn.textContent = '▶'; playing = null; };
     audio.play();
     btn.textContent = '⏸';
     playing = { audio, btn };
@@ -295,13 +342,15 @@
       }
     }
     if (!j || j.project_key !== KEY) return;
-    if (j.kind !== 'extract_clips' && j.kind !== 'renew_reference') return;
+    if (j.kind !== 'extract_clips' && j.kind !== 'renew_reference' &&
+        j.kind !== 'test_speech') return;
     const active = j.status === 'running' || j.status === 'queued';
     if (active) { status(j.message || j.status); return; }
     if (reportedJobIds.has(j.id)) return;
     reportedJobIds.add(j.id);
     if (j.status === 'failed') {
       status(`job failed: ${j.error}`, true);
+      reload();   // re-render so a stuck "Generate…" button resets
       return;
     }
     if (j.kind === 'extract_clips') {
@@ -309,6 +358,8 @@
       const total = Object.values(per).reduce((a, b) => a + b, 0);
       status(`extracted ${total} clips ✓` +
              (j.result.skipped_pruned ? ` (${j.result.skipped_pruned} pruned kept out)` : ''));
+    } else if (j.kind === 'test_speech') {
+      status(`test speech ready for ${j.result.speaker} (${j.result.duration_s}s)`);
     } else {
       const n = Object.keys(j.result.deltas || {}).length;
       const modes = Object.values(j.result.speakers || {});

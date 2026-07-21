@@ -1,8 +1,8 @@
-"""Ported CONFIG block from dub_pipeline.py, trimmed to the Chatterbox-only webapp.
+"""Project-creation defaults and infrastructure config.
 
-Values here seed *project defaults* when a new project is created; after that,
-the runtime source of truth is each project's project.json (see
-models/project_state.py). XTTS / easy_xtts_trainer knobs from the CLI are gone.
+Values here seed *project defaults* when a new project is created; after
+that, the runtime source of truth is each project's project.json (see
+models/project_state.py).
 """
 import os
 from pathlib import Path
@@ -61,6 +61,41 @@ COSYVOICE_REF_MIN_S = 3.0        # zero-shot prompt clip sweet spot
 COSYVOICE_REF_MAX_S = 15.0
 COSYVOICE_PINNED_REF_MAX_S = 20.0  # cap for the concatenated multi-pin reference
 
+# ---- CrispASR engine ---------------------------------------------
+# CrispASR runs as a SEPARATE, always-running server process (ggml/C++),
+# not something this app loads/unloads in-process. It exposes an OpenAI-
+# compatible /v1/audio/speech endpoint. Set these to wherever you're
+# actually running it:
+#   CRISPASR_URL      - the normal (GPU) instance
+#   CRISPASR_CPU_URL   - a SEPARATE instance you've started CPU-only (e.g.
+#                        with the relevant CRISPASR_<BACKEND>_*_CPU=1 env
+#                        vars at ITS startup). Defaults to CRISPASR_URL --
+#                        meaning the Force CPU checkbox is a NO-OP for this
+#                        engine unless you actually stand up a second
+#                        instance. CrispASR's device selection is fixed at
+#                        ITS process startup (env vars), not a per-request
+#                        HTTP parameter, so there is no way to force CPU
+#                        for a single call against a GPU-configured instance.
+# IMPORTANT (VRAM): this app's "never load Chatterbox/CosyVoice3 in-process
+# while Demucs runs" discipline (gpu_service.exclusive()) has NO visibility
+# into CrispASR's own GPU usage -- it's a separate process. If CrispASR's
+# model is resident on the same physical GPU while Demucs runs here, they
+# can contend for VRAM with no coordination. Worth knowing on a 4GB card.
+CRISPASR_URL = os.environ.get("CRISPASR_URL", "http://127.0.0.1:8090")
+CRISPASR_CPU_URL = os.environ.get("CRISPASR_CPU_URL", CRISPASR_URL)
+CRISPASR_DEFAULT_BACKEND = "cosyvoice3-tts"   # confirmed via `crispasr --list-backends`
+                                              # (NOT "cosyvoice3" -- corrected after
+                                              # verifying against a real build; the
+                                              # web docs disagreed with each other)
+CRISPASR_TIMEOUT_S = 120
+
+CRISPASR_CONSENT_ATTESTATION = (
+    "Operator-attested: reference audio is used with the speaker's consent, "
+    "for personal non-commercial dubbing."
+)
+CRISPASR_SPOKEN_DISCLAIMER = False
+
+
 # ---- audio / extraction constants (unchanged from the CLI) -------------------
 MAX_ATEMPO = 2.0                 # ffmpeg atempo hard limit per filter pass
 DEMUCS_MODEL = "htdemucs"
@@ -71,7 +106,5 @@ MIN_REF_MS = 300                 # reference clips shorter than this are rejecte
 MIN_CLIP_MS = 700                # warn (not skip) when an extracted ref clip is shorter
 
 # ---- GPU --------------------------------------------------------------------
-# fp16 is the default here (the CLI defaulted to fp32): the webapp's assumed
-# path is the 4GB GTX 1650, where fp16 weight conversion + autocast is required
-# for Chatterbox to fit. CPU fallback with a visible warning if CUDA is absent.
-PRECISION = "fp16"               # fp32 | fp16 | bf16 (bf16 falls back to fp16 pre-Ampere)
+
+PRECISION = "fp16"

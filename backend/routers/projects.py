@@ -1,5 +1,5 @@
 """Project Center API: list/create/delete projects, per-project meta,
-thumbnail. All state mutations go through store.locked()."""
+thumbnail."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
@@ -83,7 +83,7 @@ def delete_project(key: str):
 
 @router.put("/{key}/engine")
 def set_engine(key: str, body: SetEngine):
-    """Per-project synthesis-engine switch (chatterbox | cosyvoice3).
+    """Per-project synthesis-engine switch (chatterbox | cosyvoice3 | crispasr).
     Semantics live in project_state.set_engine: takes flip to needs_full,
     the inactive engine's overrides/speaker defaults are cleared. The
     confirmation dialog is the frontend's job; the API just does it."""

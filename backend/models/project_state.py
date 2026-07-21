@@ -1,22 +1,5 @@
-"""project.json schema + atomic writes. The single owner of:
+"""project.json schema
 
-  * the inheritance cascade — project defaults -> speaker defaults -> line
-    overrides — via one resolve(); API responses carry effective value +
-    override source per field, and the frontend only renders (the cascade is
-    never reimplemented in JS)
-  * the light/full BADGE-TRANSITION TABLE: which edited field triggers which
-    regen tier, and how each edit moves a line's badge. Routers call
-    apply_line_edits / set_speaker_default / set_project_default and get badge
-    deltas back — the table is not smeared across routers.
-  * badge lifecycle for job runs (mark_queued / mark_generating /
-    mark_success / mark_failed), used by the Phase-2/3 job worker
-  * the single-level undo slot metadata (the displaced raw+fit audio files
-    themselves live in dub_work/undo/ — this module only tracks which lines
-    the last dub action touched and what badge/take state they had before)
-
-Everything in this module is pure state: no GPU, no audio, no FastAPI.
-project.json is the runtime source of truth; segments.csv is import/export
-interchange only.
 """
 from __future__ import annotations
 
@@ -48,13 +31,11 @@ class FitMode(str, Enum):
 
 
 # Synthesis engines (per-project choice). Engine-SPECIFIC inheritable
-# fields are namespaced here: the cascade mechanism is one and the same,
-# but only the active engine's fields are surfaced/used, and switching
-# engines clears the now-inactive engine's overrides + speaker defaults.
-ENGINES = ("chatterbox", "cosyvoice3")
+ENGINES = ("chatterbox", "cosyvoice3", "crispasr")
 ENGINE_FIELDS = {
     "chatterbox": ("exaggeration", "cfg_weight"),
     "cosyvoice3": ("speed", "instruct_text"),
+    "crispasr": ("crispasr_backend",),
 }
 
 # Fields that flow through the inheritance cascade
@@ -65,18 +46,14 @@ INHERITABLE_FIELDS = (
     "cfg_weight",       # chatterbox
     "speed",            # cosyvoice3: native generation-speed knob
     "instruct_text",    # cosyvoice3: free-text style instruction ("" = plain zero-shot)
+    "crispasr_backend", # crispasr: which of its hosted TTS backends to use
     "tolerance",
     "fit_mode",
     "manual_factor",
 )
 
-# Line-local fields stored directly on the line (never inherited):
-# original_text = the ORIGINAL-language line (cosyvoice3 uses the reference
-# clip's original_text as the zero-shot prompt transcript)
 LINE_LOCAL_FIELDS = ("speaker", "start", "end", "text", "original_text")
 
-# ---- the badge-transition table (single source of truth) --------------------
-# Which regen tier an edit to each field demands:
 #   full  = the synthesized audio itself is stale -> new TTS generation
 #   light = only stretching/placement is stale -> refit from untouched raw/
 FIELD_REGEN_TIER: dict[str, str] = {
@@ -88,6 +65,7 @@ FIELD_REGEN_TIER: dict[str, str] = {
     "cfg_weight": "full",
     "speed": "full",           # cosyvoice generates AT this speed (not post atempo)
     "instruct_text": "full",
+    "crispasr_backend": "full",  # different underlying backend = different audio
     # engine-conditional: full under cosyvoice3 (it feeds the reference
     # prompt), NO badge effect under chatterbox — special-cased in
     # apply_line_edits, the one deliberate exception to the static table
@@ -164,6 +142,7 @@ class ProjectState:
             "cfg_weight": config.CHATTERBOX_CFG_WEIGHT,
             "speed": config.COSYVOICE_SPEED,
             "instruct_text": config.COSYVOICE_INSTRUCT_TEXT,
+            "crispasr_backend": config.CRISPASR_DEFAULT_BACKEND,
             "tolerance": config.SLOT_TOLERANCE,
             "fit_mode": config.DEFAULT_FIT_MODE,
             "manual_factor": config.DEFAULT_MANUAL_FACTOR,
@@ -330,6 +309,8 @@ class ProjectState:
                            "manual_factor", "speed") and value is not None:
                 value = float(value)
             elif field == "instruct_text" and value is not None:
+                value = str(value)
+            elif field == "crispasr_backend" and value is not None:
                 value = str(value)
             elif field == "original_text" and value is not None:
                 value = str(value).strip() or None
@@ -597,6 +578,8 @@ class ProjectState:
         data["project_defaults"].setdefault("speed", config.COSYVOICE_SPEED)
         data["project_defaults"].setdefault(
             "instruct_text", config.COSYVOICE_INSTRUCT_TEXT)
+        data["project_defaults"].setdefault(
+            "crispasr_backend", config.CRISPASR_DEFAULT_BACKEND)   # pre-P6
         for l in data.get("lines", []):
             l.setdefault("original_text", None)
         return cls(data, path=path)

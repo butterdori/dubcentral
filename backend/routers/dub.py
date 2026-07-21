@@ -32,7 +32,8 @@ from ..gpu_service import gpu
 from ..job_queue import Busy, jobs
 from ..models.project_state import ENGINE_FIELDS, Badge, StateError
 from ..models.schema import LineEditRequest
-from ..pipeline import assembly, dub_work, timefit, tts_chatterbox, tts_cosyvoice
+from ..pipeline import (assembly, dub_work, timefit, tts_chatterbox,
+                        tts_cosyvoice, tts_crispasr)
 from .projects import get_state_or_404
 
 router = APIRouter(prefix="/projects/{key}/dub", tags=["dub"])
@@ -235,7 +236,10 @@ def run_dub(key: str, body: RunRequest):
                     f = p["fields"]
                     if spk not in ref_cache:
                         try:
-                            if engine == "cosyvoice3":
+                            if engine in ("cosyvoice3", "crispasr"):
+                                # same zero-shot single-clip+transcript
+                                # pattern for both -- crispasr's cosyvoice3
+                                # backend needs identical reference material
                                 ref_cache[spk] = tts_cosyvoice.select_reference(
                                     ps_ro, d, spk)   # (clip_path, original_text)
                             else:
@@ -255,6 +259,17 @@ def run_dub(key: str, body: RunRequest):
                             ref_path=ref_wav,
                             speed=f["speed"]["value"],
                             instruct_text=f["instruct_text"]["value"],
+                            out_path=raw,
+                            force_cpu=force_cpu,
+                        )
+                    elif engine == "crispasr":
+                        ref_wav, prompt_text = ref_cache[spk]
+                        synth = tts_crispasr.synthesize_line
+                        kwargs = dict(
+                            text=p["text"],
+                            prompt_text=prompt_text,
+                            ref_path=ref_wav,
+                            backend=f["crispasr_backend"]["value"],
                             out_path=raw,
                             force_cpu=force_cpu,
                         )
@@ -336,9 +351,6 @@ def run_dub(key: str, body: RunRequest):
 
 @router.post("/undo")
 def undo(key: str):
-    """Single-level undo of the LAST Dub All/Selected: every touched line's
-    previous take (or not-yet-dubbed state) comes back. Text/knob/speaker
-    edits are outside undo's scope entirely."""
     get_state_or_404(key)
     if jobs.busy():
         raise HTTPException(409, "a job is running — undo after it finishes")
