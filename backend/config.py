@@ -92,6 +92,14 @@ CRISPASR_TIMEOUT_S = 120
 CRISPASR_VOICE_DIR = Path(os.environ.get(
     "CRISPASR_VOICE_DIR", str(BACKEND_ROOT / "storage" / "_crispasr_voices")))
 
+CRISPASR_TRANSPORT = os.environ.get("CRISPASR_TRANSPORT", "auto")
+CRISPASR_BIN = os.environ.get("CRISPASR_BIN", "crispasr")
+CRISPASR_CLI_TIMEOUT_S = 600   # includes per-invocation model load
+
+
+CRISPASR_FREQUENCY_PENALTY = os.environ.get("CRISPASR_FREQUENCY_PENALTY")  # e.g. "0.3"
+CRISPASR_MAX_NEW_TOKENS = os.environ.get("CRISPASR_MAX_NEW_TOKENS")        # e.g. "200"
+
 CRISPASR_CONSENT_ATTESTATION = (
     "Operator-attested: reference audio is used with the speaker's consent, "
     "for personal non-commercial dubbing."

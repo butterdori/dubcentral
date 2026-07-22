@@ -18,6 +18,7 @@
     crispasr: [
       ['dub_language', 'lang', 'text'],
       ['crispasr_backend', 'backend', 'text'],
+      ['instruct_text', 'instr', 'text'],
       ['tolerance', 'tol', 'number'],
     ],
   };

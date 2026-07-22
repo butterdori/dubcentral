@@ -259,6 +259,7 @@ def generate_test_speech(key: str, spk: str, body: TestSpeech):
             dur = tts_crispasr.synthesize_line(
                 text=body.text, prompt_text=prompt_text, ref_path=ref_wav,
                 backend=fields["crispasr_backend"]["value"],
+                instruct_text=fields["instruct_text"]["value"],
                 out_path=out, force_cpu=force_cpu)
         else:
             ref_path = tts_chatterbox.ensure_reference(ps, d, spk)

@@ -35,7 +35,7 @@ ENGINES = ("chatterbox", "cosyvoice3", "crispasr")
 ENGINE_FIELDS = {
     "chatterbox": ("exaggeration", "cfg_weight"),
     "cosyvoice3": ("speed", "instruct_text"),
-    "crispasr": ("crispasr_backend",),
+    "crispasr": ("crispasr_backend", "instruct_text"),
 }
 
 # Fields that flow through the inheritance cascade

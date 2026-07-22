@@ -42,6 +42,8 @@
   /* ------------------------------ render ------------------------------ */
 
   function render() {
+    const prevScrollTop = root.querySelector('.dc-wrap')?.scrollTop;
+
     if (!data.rows.length) {
       root.replaceChildren(el('div', { class: 'placeholder-pane' },
         'no lines yet — upload an SRT in the Upload Center'));
@@ -70,8 +72,12 @@
                               : 'run Final Remix first' }, '⬇ Final'),
       el('span', { class: 'mono dim', id: 'dc-status' }, lastStats));
 
-    root.replaceChildren(bar, optionsBar(), bulkBar(),
-      el('div', { class: 'dc-wrap' }, table()));
+    const wrap = el('div', { class: 'dc-wrap' }, table());
+    document.activeElement?.blur();
+    root.replaceChildren(bar, optionsBar(), bulkBar(), wrap);
+    if (prevScrollTop) {
+      requestAnimationFrame(() => { wrap.scrollTop = prevScrollTop; });
+    }
   }
 
   function optionsBar() {
@@ -160,14 +166,14 @@
     const engine = data.engine;
     const cosy = engine === 'cosyvoice3';
     const crisp = engine === 'crispasr';
+    const wantsInstr = cosy || crisp;   // both engines expose instruct_text
     const lang = el('input', { type: 'text', placeholder: 'lang', title: HINT.lang });
     const exag = crisp
       ? el('input', { type: 'text', placeholder: 'backend', title: HINT.crispasrBackend })
       : el('input', { type: 'number', step: '0.05',
       placeholder: cosy ? 'spd' : 'exag', title: cosy ? HINT.speed : HINT.exag });
-    const cfg  = el('input', { type: cosy ? 'text' : 'number', step: '0.05',
-      placeholder: cosy ? 'instr' : 'cfg', title: cosy ? HINT.instr : HINT.cfg,
-      hidden: crisp });
+    const cfg  = el('input', { type: wantsInstr ? 'text' : 'number', step: '0.05',
+      placeholder: wantsInstr ? 'instr' : 'cfg', title: wantsInstr ? HINT.instr : HINT.cfg });
     const clearInstr = el('input', { type: 'checkbox',
       title: 'Clear instr (revert to inherited/blank) for selected lines, ' +
              'instead of setting new text — the text box alone can\'t ' +
@@ -188,20 +194,18 @@
       if (lang.value.trim()) per.push(['dub_language', lang.value.trim()]);
       if (crisp) {
         if (exag.value.trim()) per.push(['crispasr_backend', exag.value.trim()]);
-      } else {
-      const numPairs = cosy
-        ? [[exag, 'speed'], [tol, 'tolerance'], [fac, 'manual_factor']]
-        : [[exag, 'exaggeration'], [cfg, 'cfg_weight'],
-           [tol, 'tolerance'], [fac, 'manual_factor']];
-      for (const [inp, f] of numPairs) {
-        if (inp.value !== '') per.push([f, Number(inp.value)]);
-        }
-      }
-      if (crisp) {
         if (tol.value !== '') per.push(['tolerance', Number(tol.value)]);
         if (fac.value !== '') per.push(['manual_factor', Number(fac.value)]);
+      } else {
+        const numPairs = cosy
+          ? [[exag, 'speed'], [tol, 'tolerance'], [fac, 'manual_factor']]
+          : [[exag, 'exaggeration'], [cfg, 'cfg_weight'],
+             [tol, 'tolerance'], [fac, 'manual_factor']];
+        for (const [inp, f] of numPairs) {
+          if (inp.value !== '') per.push([f, Number(inp.value)]);
+        }
       }
-      if (cosy) {
+      if (wantsInstr) {
         if (clearInstr.checked) per.push(['instruct_text', null]);
         else if (cfg.value.trim() !== '') per.push(['instruct_text', cfg.value.trim()]);
       }
@@ -217,7 +221,7 @@
       } catch (e) { status(e.message, true); reload(); }
     } }, 'Apply to selected');
 
-    const cfgGroup = cosy
+    const cfgGroup = wantsInstr
       ? el('span', { class: 'dc-instr-group' }, cfg,
           el('label', { class: 'dc-clear-instr', title: clearInstr.title },
             clearInstr, ' clear'))
@@ -248,7 +252,8 @@
              el('th', { title: HINT.instr }, 'instr')]
           : data.engine === 'crispasr'
           ? [el('th', { title: HINT.orig }, 'orig text'),
-             el('th', { title: HINT.crispasrBackend }, 'backend')]
+             el('th', { title: HINT.crispasrBackend }, 'backend'),
+             el('th', { title: HINT.instr }, 'instr')]
           : [el('th', { title: HINT.exag }, 'exag'),
              el('th', { title: HINT.cfg }, 'cfg')]),
         el('th', { title: HINT.tol }, 'tol'),
@@ -360,6 +365,14 @@
                class: f.source === 'line' ? 'ovr' : '',
                value: f.value, title: `${HINT.crispasrBackend} (from ${f.source})`,
                onchange: ev => edit(r.line_no, 'crispasr_backend',
+                 ev.target.value.trim() === '' ? null : ev.target.value.trim()) });
+           })()),
+           el('td', { class: 'w-instr' }, (() => {
+             const f = r.fields.instruct_text;
+             return el('input', { type: 'text',
+               class: f.source === 'line' ? 'ovr' : '',
+               value: f.value, title: `${HINT.instr} (from ${f.source})`,
+               onchange: ev => edit(r.line_no, 'instruct_text',
                  ev.target.value.trim() === '' ? null : ev.target.value.trim()) });
            })())]
         : [el('td', { class: 'w-sm' }, numInput(r, 'exaggeration')),

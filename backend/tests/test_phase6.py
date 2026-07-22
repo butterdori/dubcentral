@@ -194,6 +194,7 @@ def test_http_error_translation(tmp_path, monkeypatch):
     from backend import config
     from backend.pipeline import tts_crispasr
     monkeypatch.setattr(config, "CRISPASR_VOICE_DIR", tmp_path / "voices")
+    monkeypatch.setattr(config, "CRISPASR_TRANSPORT", "http")  # pure-HTTP assertions
     ref = tmp_path / "ref.wav"; ref.write_bytes(b"x")
     out = tmp_path / "out.wav"
 
@@ -223,12 +224,14 @@ def fake_crisp(monkeypatch):
     from backend.pipeline import tts_crispasr
     calls = []
 
-    def synth(*, text, prompt_text, ref_path, backend, out_path, force_cpu=False):
+    def synth(*, text, prompt_text, ref_path, backend, out_path,
+              force_cpu=False, instruct_text=""):
         parts = out_path.stem.split("_")
         n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
         assert ref_path.exists()
         calls.append({"line": n, "text": text, "prompt_text": prompt_text,
-                      "backend": backend, "force_cpu": force_cpu})
+                      "backend": backend, "force_cpu": force_cpu,
+                      "instruct_text": instruct_text})
         out_path.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i",
                         "sine=frequency=600:duration=1.0",
@@ -283,19 +286,27 @@ def test_crispasr_backend_edit_is_full_tier(client, video, fake_demucs, fake_cri
 
 # --------------------------- engine switch field isolation ---------------------
 
-def test_crispasr_fields_dont_overlap_cosyvoice(client, video, fake_demucs,
-                                                fake_crisp):
-    """crispasr deliberately uses its OWN field name (crispasr_backend),
-    not speed/instruct_text, specifically so switching to/from cosyvoice3
-    can't cross-clobber the other's overrides (see project_state.
-    ENGINE_FIELDS comment). Guard the design decision directly..."""
+def test_crispasr_speed_field_does_not_overlap_cosyvoice(client, video, fake_demucs,
+                                                          fake_crisp):
+    """crispasr uses its OWN field name for backend selection
+    (crispasr_backend, not speed) specifically so switching to/from
+    cosyvoice3 can't cross-clobber a numeric speed override with a backend
+    name or vice versa (see project_state.ENGINE_FIELDS comment).
+    instruct_text IS intentionally shared between the two -- same
+    conceptual field (free-text style/language instruction), and CrispASR's
+    CLI has native --instruct support -- so switching engines correctly
+    clears it either way (a stale instruction for a different engine isn't
+    something worth preserving)."""
     from backend.models.project_state import ENGINE_FIELDS
-    assert not set(ENGINE_FIELDS["crispasr"]) & set(ENGINE_FIELDS["cosyvoice3"])
+    assert "speed" not in ENGINE_FIELDS["crispasr"]
+    assert "crispasr_backend" not in ENGINE_FIELDS["cosyvoice3"]
+    assert "instruct_text" in ENGINE_FIELDS["crispasr"]
+    assert "instruct_text" in ENGINE_FIELDS["cosyvoice3"]   # intentionally shared
 
-    # ...and behaviorally: switching away from cosyvoice3 correctly clears
+    # behaviorally: switching away from cosyvoice3 correctly clears
     # cosyvoice3's OWN fields (expected -- same as any other engine switch),
-    # and switching to/from crispasr afterward only ever touches
-    # crispasr_backend, never speed/instruct_text again.
+    # and switching to/from crispasr afterward only ever touches its own
+    # fields, never resurrecting a stale "speed" override.
     key = make_project(client, video, engine="cosyvoice3")
     client.patch(f"/api/projects/{key}/dub/lines", json={"edits": [
         {"line_no": 1, "field": "speed", "value": 1.3}]})
@@ -311,11 +322,24 @@ def test_crispasr_fields_dont_overlap_cosyvoice(client, video, fake_demucs,
     assert "speed" not in ps.line(1)["overrides"]   # not resurrected either
 
 
+def test_crispasr_instruct_text_reaches_synthesis(client, video, fake_demucs,
+                                                   fake_crisp):
+    """The whole point of adding instruct_text to crispasr: it actually
+    reaches synthesize_line (both dub runs and test-speech), where it maps
+    to CrispASR's --instruct / "instructions"."""
+    key = make_project(client, video)
+    client.patch(f"/api/projects/{key}/dub/lines", json={"edits": [
+        {"line_no": 1, "field": "instruct_text", "value": "Speak in Korean."}]})
+    run_dub(client, key, mode="selected", line_nos=[1])
+    call = next(c for c in fake_crisp if c.get("line") == 1)
+    assert call["instruct_text"] == "Speak in Korean."
+
+
 def test_grid_engine_fields_for_crispasr(client, video, fake_demucs):
     key = make_project(client, video)
     g = grid(client, key)
     assert g["engine"] == "crispasr"
-    assert g["engine_fields"] == ["crispasr_backend"]
+    assert g["engine_fields"] == ["crispasr_backend", "instruct_text"]
 
 
 def test_pin_renew_ui_reused_under_crispasr(client, video, fake_demucs, fake_crisp):
@@ -399,3 +423,199 @@ def test_test_speech_bad_speaker_and_busy(client, video, fake_demucs):
     assert r.status_code == 409
     release.set()
     job_queue.wait_idle()
+
+
+# ------------------------ transport modes + auto-fallback -----------------------
+
+@pytest.fixture(autouse=True)
+def _reset_forced_cli():
+    """_FORCED_CLI is module-level sticky state (by design, per process) --
+    reset around every test so a fallback in one test can't poison others."""
+    from backend.pipeline import tts_crispasr
+    tts_crispasr._FORCED_CLI = False
+    yield
+    tts_crispasr._FORCED_CLI = False
+
+
+def _wav_bytes(tmp_path):
+    import wave
+    p = tmp_path / "real.wav"
+    with wave.open(str(p), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * 1600)
+    return p.read_bytes()
+
+
+def test_cli_transport_command_shape(tmp_path, monkeypatch):
+    """cli mode: correct binary invocation incl. consent/disclosure/
+    watermark flags, ref-text, and --no-gpu under force_cpu."""
+    import subprocess as sp
+    from backend import config
+    from backend.pipeline import tts_crispasr
+    monkeypatch.setattr(config, "CRISPASR_TRANSPORT", "cli")
+    monkeypatch.setattr(config, "CRISPASR_BIN", "/opt/crispasr/bin/crispasr")
+
+    import pathlib as pl
+    wav = _wav_bytes(tmp_path)
+    calls = []
+    real_run = sp.run
+    def fake_run(cmd, *a, **kw):
+        if cmd[0] != config.CRISPASR_BIN:      # ffprobe etc: pass through
+            return real_run(cmd, *a, **kw)
+        calls.append((cmd, kw.get("timeout")))
+        # emulate the CLI writing its --tts-output file
+        pl.Path(cmd[cmd.index("--tts-output") + 1]).write_bytes(wav)
+        class P: returncode = 0; stdout = "ok"; stderr = ""
+        return P()
+    monkeypatch.setattr(sp, "run", fake_run)
+
+    ref = tmp_path / "ref.wav"; ref.write_bytes(b"x")
+    out = tmp_path / "o" / "out.wav"
+    dur = tts_crispasr.synthesize_line(
+        text="hello", prompt_text="こんにちは", ref_path=ref,
+        backend="cosyvoice3-tts", out_path=out, force_cpu=True)
+    assert dur > 0
+    cmd, timeout = calls[0]
+    assert cmd[0] == "/opt/crispasr/bin/crispasr"
+    assert cmd[cmd.index("--backend") + 1] == "cosyvoice3-tts"
+    assert cmd[cmd.index("--voice") + 1] == str(ref)
+    assert cmd[cmd.index("--ref-text") + 1] == "こんにちは"
+    assert cmd[cmd.index("--tts") + 1] == "hello"
+    assert "--i-have-rights" in cmd
+    assert "--no-watermark" in cmd
+    assert "--no-spoken-disclaimer" in cmd   # CRISPASR_SPOKEN_DISCLAIMER=False
+    assert "--no-gpu" in cmd                  # force_cpu WORKS in cli mode
+    assert timeout == config.CRISPASR_CLI_TIMEOUT_S
+
+    # force_cpu=False -> no --no-gpu
+    tts_crispasr.synthesize_line(
+        text="hi", prompt_text="", ref_path=ref,
+        backend="cosyvoice3-tts", out_path=out, force_cpu=False)
+    cmd2, _ = calls[1]
+    assert "--no-gpu" not in cmd2
+    assert "--ref-text" not in cmd2   # empty transcript omitted
+
+
+def test_auto_falls_back_on_synthesis_failed_and_sticks(tmp_path, monkeypatch):
+    """auto mode: the confirmed 500 synthesis_failed signature flips to the
+    CLI and STAYS there -- the second call never touches HTTP again."""
+    import subprocess as sp
+    import pathlib as pl
+    from backend import config
+    from backend.pipeline import tts_crispasr
+    monkeypatch.setattr(config, "CRISPASR_TRANSPORT", "auto")
+    monkeypatch.setattr(config, "CRISPASR_VOICE_DIR", tmp_path / "voices")
+
+    http_calls = []
+    monkeypatch.setattr("requests.post", lambda *a, **kw: (
+        http_calls.append(1),
+        FakeResponse(500, text='{"error": {"code": "synthesis_failed"}}'))[1])
+
+    wav = _wav_bytes(tmp_path)
+    cli_calls = []
+    real_run = sp.run
+    def fake_run(cmd, *a, **kw):
+        if cmd[0] != config.CRISPASR_BIN:      # ffprobe etc: pass through
+            return real_run(cmd, *a, **kw)
+        cli_calls.append(cmd)
+        pl.Path(cmd[cmd.index("--tts-output") + 1]).write_bytes(wav)
+        class P: returncode = 0; stdout = ""; stderr = ""
+        return P()
+    monkeypatch.setattr(sp, "run", fake_run)
+
+    ref = tmp_path / "ref.wav"; ref.write_bytes(b"x")
+    out = tmp_path / "out.wav"
+    kw = dict(text="t", prompt_text="p", ref_path=ref,
+              backend="cosyvoice3-tts", out_path=out)
+    assert tts_crispasr.synthesize_line(**kw) > 0
+    assert len(http_calls) == 1 and len(cli_calls) == 1   # tried http, fell back
+
+    assert tts_crispasr.synthesize_line(**kw) > 0
+    assert len(http_calls) == 1 and len(cli_calls) == 2   # sticky: straight to CLI
+
+
+def test_auto_does_not_fall_back_on_other_errors(tmp_path, monkeypatch):
+    """A 500 that ISN'T the voice-dir signature (e.g. a real OOM) surfaces
+    as-is -- falling back to the CLI there would just OOM harder."""
+    from backend import config
+    from backend.pipeline import tts_crispasr
+    monkeypatch.setattr(config, "CRISPASR_TRANSPORT", "auto")
+    monkeypatch.setattr(config, "CRISPASR_VOICE_DIR", tmp_path / "voices")
+    monkeypatch.setattr("requests.post",
+        lambda *a, **kw: FakeResponse(500, text="CUDA out of memory"))
+    ref = tmp_path / "ref.wav"; ref.write_bytes(b"x")
+    with pytest.raises(tts_crispasr.CrispASRError, match="out of memory"):
+        tts_crispasr.synthesize_line(text="t", prompt_text="", ref_path=ref,
+                                     backend="cosyvoice3-tts",
+                                     out_path=tmp_path / "out.wav")
+    assert tts_crispasr._FORCED_CLI is False   # not sticky for this
+
+
+def test_cli_failure_surfaces_output_tail(tmp_path, monkeypatch):
+    import subprocess as sp
+    from backend import config
+    from backend.pipeline import tts_crispasr
+    monkeypatch.setattr(config, "CRISPASR_TRANSPORT", "cli")
+    def fake_run(cmd, capture_output, text, timeout):
+        class P:
+            returncode = 3
+            stdout = ""
+            stderr = "line1\nsomething exploded: no such tensor\n"
+        return P()
+    monkeypatch.setattr(sp, "run", fake_run)
+    ref = tmp_path / "ref.wav"; ref.write_bytes(b"x")
+    with pytest.raises(tts_crispasr.CrispASRError,
+                       match="something exploded"):
+        tts_crispasr.synthesize_line(text="t", prompt_text="", ref_path=ref,
+                                     backend="cosyvoice3-tts",
+                                     out_path=tmp_path / "out.wav")
+
+
+def test_instruct_text_maps_to_instructions_over_http(tmp_path, monkeypatch):
+    from backend import config
+    from backend.pipeline import tts_crispasr
+    monkeypatch.setattr(config, "CRISPASR_TRANSPORT", "http")
+    monkeypatch.setattr(config, "CRISPASR_VOICE_DIR", tmp_path / "voices")
+    import wave
+    real_wav = tmp_path / "real.wav"
+    with wave.open(str(real_wav), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * 1600)
+    calls = []
+    monkeypatch.setattr("requests.post", lambda url, json, timeout: (
+        calls.append(json), FakeResponse(200, content=real_wav.read_bytes()))[1])
+    ref = tmp_path / "ref.wav"; ref.write_bytes(b"x")
+    tts_crispasr.synthesize_line(
+        text="t", prompt_text="", ref_path=ref, backend="cosyvoice3-tts",
+        out_path=tmp_path / "out.wav", instruct_text="Speak in Korean.")
+    assert calls[0]["instructions"] == "Speak in Korean."
+
+
+def test_instruct_text_maps_to_instruct_flag_over_cli(tmp_path, monkeypatch):
+    import subprocess as sp
+    import wave
+    from backend import config
+    from backend.pipeline import tts_crispasr
+    monkeypatch.setattr(config, "CRISPASR_TRANSPORT", "cli")
+    real_wav = tmp_path / "real.wav"
+    with wave.open(str(real_wav), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * 1600)
+    calls = []
+    real_run = sp.run
+    def fake_run(cmd, *a, **kw):
+        if cmd[0] != config.CRISPASR_BIN:
+            return real_run(cmd, *a, **kw)
+        calls.append(cmd)
+        import pathlib as pl
+        pl.Path(cmd[cmd.index("--tts-output") + 1]).write_bytes(real_wav.read_bytes())
+        class P: returncode = 0; stdout = ""; stderr = ""
+        return P()
+    monkeypatch.setattr(sp, "run", fake_run)
+    ref = tmp_path / "ref.wav"; ref.write_bytes(b"x")
+    dur = tts_crispasr.synthesize_line(
+        text="t", prompt_text="", ref_path=ref, backend="cosyvoice3-tts",
+        out_path=tmp_path / "out.wav", instruct_text="Speak in Korean.")
+    assert dur > 0
+    cmd = calls[0]
+    assert cmd[cmd.index("--instruct") + 1] == "Speak in Korean."

@@ -291,6 +291,7 @@ def run_dub(key: str, body: RunRequest):
                             prompt_text=prompt_text,
                             ref_path=ref_wav,
                             backend=f["crispasr_backend"]["value"],
+                            instruct_text=f["instruct_text"]["value"],
                             out_path=raw,
                             force_cpu=force_cpu,
                         )
