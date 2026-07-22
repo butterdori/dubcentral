@@ -89,6 +89,9 @@ CRISPASR_DEFAULT_BACKEND = "cosyvoice3-tts"   # confirmed via `crispasr --list-b
                                               # web docs disagreed with each other)
 CRISPASR_TIMEOUT_S = 120
 
+CRISPASR_VOICE_DIR = Path(os.environ.get(
+    "CRISPASR_VOICE_DIR", str(BACKEND_ROOT / "storage" / "_crispasr_voices")))
+
 CRISPASR_CONSENT_ATTESTATION = (
     "Operator-attested: reference audio is used with the speaker's consent, "
     "for personal non-commercial dubbing."

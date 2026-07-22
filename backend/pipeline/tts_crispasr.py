@@ -15,6 +15,22 @@ class CrispASRError(RuntimeError):
 select_reference = tts_cosyvoice.select_reference
 
 
+def _stage_voice(ref_path: Path, prompt_text: str) -> str:
+    """CrispASR's HTTP voice field customization."""
+    import hashlib
+    import shutil
+
+    name = "ref_" + hashlib.sha1(str(ref_path.resolve()).encode()).hexdigest()[:16]
+    voice_dir = config.CRISPASR_VOICE_DIR
+    voice_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ref_path, voice_dir / f"{name}.wav")
+    if prompt_text:
+        (voice_dir / f"{name}.txt").write_text(prompt_text, encoding="utf-8")
+    else:
+        (voice_dir / f"{name}.txt").unlink(missing_ok=True)
+    return name
+
+
 def synthesize_line(*, text: str, prompt_text: str, ref_path: Path,
                     backend: str, out_path: Path,
                     force_cpu: bool = False) -> float:
@@ -22,10 +38,11 @@ def synthesize_line(*, text: str, prompt_text: str, ref_path: Path,
     import requests
 
     url = config.CRISPASR_CPU_URL if force_cpu else config.CRISPASR_URL
+    voice_name = _stage_voice(ref_path, prompt_text)
     payload = {
         "model": backend,
         "input": text,
-        "voice": str(ref_path),
+        "voice": voice_name,
         "response_format": "wav",
         "consent_attestation": config.CRISPASR_CONSENT_ATTESTATION,
         "spoken_disclaimer": config.CRISPASR_SPOKEN_DISCLAIMER,

@@ -127,12 +127,10 @@ def test_http_payload_shape_and_url_selection(tmp_path, monkeypatch):
     from backend.pipeline import tts_crispasr
     monkeypatch.setattr(config, "CRISPASR_URL", "http://gpu-host:9")
     monkeypatch.setattr(config, "CRISPASR_CPU_URL", "http://cpu-host:9")
+    voice_dir = tmp_path / "voices"
+    monkeypatch.setattr(config, "CRISPASR_VOICE_DIR", voice_dir)
 
     calls = []
-    def fake_post(url, json, timeout):
-        calls.append((url, json, timeout))
-        return FakeResponse(200, content=b"\x00" * 2000)
-    monkeypatch.setattr("requests.post", fake_post)
     # make the fake wav a real (tiny) valid wav so probe_duration doesn't choke
     import wave
     real_wav = tmp_path / "real.wav"
@@ -154,7 +152,13 @@ def test_http_payload_shape_and_url_selection(tmp_path, monkeypatch):
     assert url == "http://gpu-host:9/v1/audio/speech"
     assert payload["model"] == "cosyvoice3-tts"
     assert payload["input"] == "hello"
-    assert payload["voice"] == str(ref)
+    # `voice` must be a bare name -- CrispASR's HTTP server rejects any
+    # path separator, '..', leading '/' or '~' in this field (confirmed:
+    # 400 invalid_voice against a real server)
+    voice_name = payload["voice"]
+    assert "/" not in voice_name and ".." not in voice_name and not voice_name.startswith("~")
+    assert (voice_dir / f"{voice_name}.wav").read_bytes() == ref.read_bytes()
+    assert (voice_dir / f"{voice_name}.txt").read_text(encoding="utf-8") == "こんにちは"
     assert payload["ref_text"] == "こんにちは"   # confirmed field name (not prompt_text)
     # consent + disclosure sent on every request (see config.py + VOICE_CLONING_NOTICE.md)
     assert payload["consent_attestation"] == config.CRISPASR_CONSENT_ATTESTATION
@@ -166,14 +170,30 @@ def test_http_payload_shape_and_url_selection(tmp_path, monkeypatch):
         text="hi", prompt_text="", ref_path=ref, backend="cosyvoice3-tts",
         out_path=out, force_cpu=True)
     assert calls[0][0] == "http://cpu-host:9/v1/audio/speech"
+    assert "/" not in calls[0][1]["voice"]   # still a bare staged name
     assert "ref_text" not in calls[0][1]   # empty transcript omitted
+    assert not (voice_dir / f"{calls[0][1]['voice']}.txt").exists()  # no stale .txt either
     # consent/disclosure still sent even with no ref_text (voice is still a .wav)
     assert calls[0][1]["consent_attestation"] == config.CRISPASR_CONSENT_ATTESTATION
     assert calls[0][1]["spoken_disclaimer"] is False
 
 
-def test_http_error_translation(tmp_path, monkeypatch):
+def test_stage_voice_name_is_deterministic_and_safe(tmp_path, monkeypatch):
+    from backend import config
     from backend.pipeline import tts_crispasr
+    monkeypatch.setattr(config, "CRISPASR_VOICE_DIR", tmp_path / "voices")
+    ref = tmp_path / "clip.wav"
+    ref.write_bytes(b"abc")
+    n1 = tts_crispasr._stage_voice(ref, "hello")
+    n2 = tts_crispasr._stage_voice(ref, "hello")
+    assert n1 == n2   # same source path -> same staged name every time
+    assert all(c.isalnum() or c == "_" for c in n1)   # no separators possible
+
+
+def test_http_error_translation(tmp_path, monkeypatch):
+    from backend import config
+    from backend.pipeline import tts_crispasr
+    monkeypatch.setattr(config, "CRISPASR_VOICE_DIR", tmp_path / "voices")
     ref = tmp_path / "ref.wav"; ref.write_bytes(b"x")
     out = tmp_path / "out.wav"
 
