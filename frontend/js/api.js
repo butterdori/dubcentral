@@ -1,6 +1,7 @@
 const api = {
   async _handle(res) {
     if (res.ok) {
+      if (res.status === 204) return undefined;
       const ct = res.headers.get('content-type') || '';
       return ct.includes('application/json') ? res.json() : res.text();
     }

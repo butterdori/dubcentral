@@ -244,10 +244,14 @@ video { width: 100%; border-radius: 6px; background: #000; border: 1px solid var
 .sc-play, .sc-del { padding: 0 6px; font-size: 10px; line-height: 1.4; flex: 0 0 auto; }
 
 /* ---- dub center ---- */
-/* Sticky toolbar stack*/
-#dc-body .bar { position: sticky; top: -7px; z-index: 5; background: var(--panel); }
-#dc-body .dc-options { position: sticky; top: 23px; z-index: 4; background: var(--panel); }
-#dc-body .dc-bulk { position: sticky; top: 47px; z-index: 3; background: var(--panel); }
+/* Toolbar */
+#dc-body:has(.dc-wrap) { display: flex; flex-direction: column;
+  padding: 7px 10px; overflow: hidden; }
+#dc-body:has(.dc-wrap) > .bar,
+#dc-body:has(.dc-wrap) > .dc-options,
+#dc-body:has(.dc-wrap) > .dc-bulk { flex: 0 0 auto; }
+#dc-body > .dc-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
 .dc-options { padding: 1px 0 4px; margin-bottom: 0; font-size: 11.5px; }
 .dc-opt { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 .dc-bulk { padding: 2px 0 4px; border-bottom: 1px solid
@@ -260,9 +264,8 @@ video { width: 100%; border-radius: 6px; background: #000; border: 1px solid var
   font-size: 10.5px; color: var(--dim); white-space: nowrap; }
 .dc-bulk select { max-width: 96px; }
 
-.dc-wrap { overflow-x: auto; }
 .dc-table { border-collapse: collapse; font-size: 11px; width: 100%; min-width: 880px; }
-.dc-table th { position: sticky; top: 75px; background: var(--panel); z-index: 2;
+.dc-table th { position: sticky; top: 0; background: var(--panel); z-index: 2;
   text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px;
   color: var(--dim); padding: 3px 3px; border-bottom: 1px solid var(--line);
   white-space: nowrap; }

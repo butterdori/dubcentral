@@ -465,3 +465,153 @@ def test_project_defaults_endpoint_cascades(client, video, fake_demucs, fake_tts
     assert set(out["deltas"].values()) == {"needs_full"}
     assert client.put(f"/api/projects/{key}/defaults",
                       json={"field": "nope", "value": 1}).status_code == 400
+
+
+# ------------------------- dub-selected queueing (P6.3) -------------------------
+
+def test_dub_selected_appends_to_running_run(client, video, fake_demucs, fake_tts):
+    """A second 'Dub Selected' submitted while a dub is running appends its
+    lines to the current run instead of 409'ing. Uses a gate inside the
+    fake synth so the first run is provably still in-flight when the second
+    submits."""
+    import threading
+    from backend.pipeline import tts_chatterbox
+
+    key = make_ready(client, video)   # lines 1,2,3
+    gate = threading.Event()
+    seen_line1 = threading.Event()
+    orig = tts_chatterbox.synthesize_line
+
+    def gated(*, out_path, **kw):
+        n = int(out_path.stem.split("_")[1])
+        if n == 1:
+            seen_line1.set()
+            gate.wait(10)   # hold line 1 until the test releases it
+        return orig(out_path=out_path, **kw)
+    tts_chatterbox.synthesize_line = gated
+    try:
+        r1 = client.post(f"/api/projects/{key}/dub/run",
+                         json={"mode": "selected", "line_nos": [1]})
+        assert r1.status_code == 202
+        assert seen_line1.wait(10)   # run is now parked inside line 1
+
+        # second Dub Selected while the first is mid-flight -> appended, not 409
+        r2 = client.post(f"/api/projects/{key}/dub/run",
+                         json={"mode": "selected", "line_nos": [2, 3]})
+        assert r2.status_code == 202, r2.text
+        assert r2.json().get("appended") is True
+        assert r2.json()["job"]["id"] == r1.json()["job"]["id"]  # same run
+
+        gate.set()   # let it finish
+        assert job_queue.wait_idle(30)
+    finally:
+        tts_chatterbox.synthesize_line = orig
+        gate.set()
+
+    snap = client.get("/api/jobs/current").json()["job"]
+    assert snap["status"] == "done", snap
+    assert snap["result"]["n_ok"] == 3   # all three lines dubbed in ONE run
+    # all three clean now
+    assert all(row["badge"] == "clean" for row in grid(client, key)["rows"])
+
+
+def test_dub_selected_append_dedupes(client, video, fake_demucs, fake_tts):
+    """Appending a line already in the running plan is a no-op (no double
+    synthesis of the same line)."""
+    import threading
+    from backend.pipeline import tts_chatterbox
+
+    key = make_ready(client, video)
+    gate = threading.Event()
+    seen = threading.Event()
+    orig = tts_chatterbox.synthesize_line
+
+    def gated(*, out_path, **kw):
+        n = int(out_path.stem.split("_")[1])
+        if n == 1:
+            seen.set(); gate.wait(10)
+        return orig(out_path=out_path, **kw)
+    tts_chatterbox.synthesize_line = gated
+    try:
+        client.post(f"/api/projects/{key}/dub/run",
+                    json={"mode": "selected", "line_nos": [1, 2]})
+        assert seen.wait(10)
+        # re-submit line 1 (already in plan) + new line 3
+        r = client.post(f"/api/projects/{key}/dub/run",
+                        json={"mode": "selected", "line_nos": [1, 3]})
+        assert r.json().get("appended") is True
+        gate.set()
+        assert job_queue.wait_idle(30)
+    finally:
+        tts_chatterbox.synthesize_line = orig
+        gate.set()
+
+    cfg = fake_tts
+    # line 1 synthesized exactly once despite being submitted twice
+    assert cfg.calls.count(1) == 1
+    assert set(cfg.calls) == {1, 2, 3}
+
+
+def test_dub_all_still_409s_when_busy(client, video, fake_demucs, fake_tts):
+    """Only 'selected' appends; 'all'/'changed' still reject with 409 while
+    a run is active (they'd race the badges they're computed from)."""
+    import threading
+    from backend.pipeline import tts_chatterbox
+
+    key = make_ready(client, video)
+    gate = threading.Event()
+    seen = threading.Event()
+    orig = tts_chatterbox.synthesize_line
+
+    def gated(*, out_path, **kw):
+        n = int(out_path.stem.split("_")[1])
+        if n == 1:
+            seen.set(); gate.wait(10)
+        return orig(out_path=out_path, **kw)
+    tts_chatterbox.synthesize_line = gated
+    try:
+        client.post(f"/api/projects/{key}/dub/run",
+                    json={"mode": "selected", "line_nos": [1]})
+        assert seen.wait(10)
+        r = client.post(f"/api/projects/{key}/dub/run", json={"mode": "all"})
+        assert r.status_code == 409
+        gate.set()
+        assert job_queue.wait_idle(30)
+    finally:
+        tts_chatterbox.synthesize_line = orig
+        gate.set()
+
+
+def test_appended_lines_share_one_undo(client, video, fake_demucs, fake_tts):
+    """One Undo after an appended run reverts the WHOLE combined run."""
+    import threading
+    from backend.pipeline import tts_chatterbox
+
+    key = make_ready(client, video)
+    gate = threading.Event()
+    seen = threading.Event()
+    orig = tts_chatterbox.synthesize_line
+
+    def gated(*, out_path, **kw):
+        n = int(out_path.stem.split("_")[1])
+        if n == 1:
+            seen.set(); gate.wait(10)
+        return orig(out_path=out_path, **kw)
+    tts_chatterbox.synthesize_line = gated
+    try:
+        client.post(f"/api/projects/{key}/dub/run",
+                    json={"mode": "selected", "line_nos": [1]})
+        assert seen.wait(10)
+        client.post(f"/api/projects/{key}/dub/run",
+                    json={"mode": "selected", "line_nos": [2, 3]})
+        gate.set()
+        assert job_queue.wait_idle(30)
+    finally:
+        tts_chatterbox.synthesize_line = orig
+        gate.set()
+
+    assert all(row["badge"] == "clean" for row in grid(client, key)["rows"])
+    r = client.post(f"/api/projects/{key}/dub/undo")
+    assert r.status_code == 200
+    # all three restored to never-dubbed in a single undo
+    assert sorted(r.json()["restored"]) == [1, 2, 3]

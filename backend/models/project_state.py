@@ -504,15 +504,25 @@ class ProjectState:
 
     # -------------------------------- undo -----------------------------------
 
-    def record_undo(self, entries: dict[int, dict[str, Any]]) -> None:
+    def record_undo(self, entries: dict[int, dict[str, Any]],
+                    append: bool = False) -> None:
         """Called by the dub worker right before a run overwrites takes.
         `entries`: line_no -> {"had_take": bool, "prev_badge": str,
         "prev_raw_duration_s": float|None}. Single-level: replaces whatever the
-        slot held (dub_work/undo/ is likewise cleared by the worker)."""
-        self.data["undo"] = {
-            "timestamp": time.time(),
-            "lines": {str(n): meta for n, meta in entries.items()},
-        }
+        slot held (dub_work/undo/ is likewise cleared by the worker).
+
+        append=True MERGES into the existing slot instead of replacing it —
+        used when a second Dub Selected appends lines to an already-running
+        run, so one Undo afterward reverts the whole combined run, not just
+        the last appended batch."""
+        if append and self.data.get("undo"):
+            self.data["undo"]["lines"].update(
+                {str(n): meta for n, meta in entries.items()})
+        else:
+            self.data["undo"] = {
+                "timestamp": time.time(),
+                "lines": {str(n): meta for n, meta in entries.items()},
+            }
         self._touch()
 
     def consume_undo(self) -> dict[int, dict[str, Any]]:

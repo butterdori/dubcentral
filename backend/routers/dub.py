@@ -183,35 +183,47 @@ def run_dub(key: str, body: RunRequest):
 
     def run(job):
         t0 = time.time()
-        # ---- snapshot + mark: one locked pass ----
-        with store.locked(key):
-            ps = store.load(key)
-            engine = ps.data.get("engine", "chatterbox")
-            force_cpu = not ps.data.get("cuda_enabled", True)
-            plan = []   # per-line work orders w/ resolved knobs
-            dub_work.clear_undo(d)
-            entries = {}
-            for n in targets:
-                line = ps.line(n)
-                tier = _tier_for(line)
-                entries[n] = {
-                    "had_take": dub_work.raw_path(d, n).exists(),
-                    "prev_badge": line["badge"],
-                    "prev_raw_duration_s": line["raw_duration_s"],
-                    "prev_fit_duration_s": line.get("fit_duration_s"),
-                }
-                dub_work.displace_to_undo(d, n, tier)
-                plan.append({
-                    "line_no": n, "tier": tier,
-                    "fields": ps.resolve(line),
-                    "slot_s": max(0.0, line["end"] - line["start"]),
-                    "text": line["text"], "speaker": line["speaker"],
-                })
-            job.result["engine"] = engine
-            ps.record_undo(entries)
-            job.add_deltas(ps.mark_generating(targets))
-            ps.save()
-            ps_ro = ps   # read-only uses below (references)
+        job.total_targets = len(targets)
+
+        def build_plan(target_list):
+            """Locked snapshot+mark for a batch of targets. Returns the plan
+            entries. Used for the initial targets and again for any lines
+            appended (via a second Dub Selected) while this run is going."""
+            plan_out = []
+            with store.locked(key):
+                ps = store.load(key)
+                nonlocal engine, force_cpu
+                engine = ps.data.get("engine", "chatterbox")
+                force_cpu = not ps.data.get("cuda_enabled", True)
+                entries = {}
+                for n in target_list:
+                    line = ps.line(n)
+                    tier = _tier_for(line)
+                    entries[n] = {
+                        "had_take": dub_work.raw_path(d, n).exists(),
+                        "prev_badge": line["badge"],
+                        "prev_raw_duration_s": line["raw_duration_s"],
+                        "prev_fit_duration_s": line.get("fit_duration_s"),
+                    }
+                    dub_work.displace_to_undo(d, n, tier)
+                    plan_out.append({
+                        "line_no": n, "tier": tier,
+                        "fields": ps.resolve(line),
+                        "slot_s": max(0.0, line["end"] - line["start"]),
+                        "text": line["text"], "speaker": line["speaker"],
+                    })
+                job.result["engine"] = engine
+                ps.record_undo(entries, append=bool(job.result.get("_started")))
+                job.result["_started"] = True
+                job.add_deltas(ps.mark_generating(target_list))
+                ps.save()
+            return plan_out
+
+        engine = "chatterbox"
+        force_cpu = False
+        dub_work.clear_undo(d)   # once, before the first batch
+        # ---- initial snapshot + mark ----
+        plan = build_plan(targets)
 
         # ---- per-line loop (no lock held during GPU work) ----
         ref_cache: dict[str, object] = {}   # spk -> Path | TTSError
@@ -225,10 +237,19 @@ def run_dub(key: str, body: RunRequest):
               f"{sum(1 for x in plan if x['tier'] == 'light')} refit)",
               flush=True)
 
-        for i, p in enumerate(plan, 1):
+        i = 0
+        ps_ro = None
+        while i < len(plan):
+            p = plan[i]
+            i += 1
             n = p["line_no"]
-            job.set_message(f"line {n} ({i}/{len(plan)}, "
+            job.set_message(f"line {n} ({i}/{job.total_targets}, "
                             f"{'refit' if p['tier'] == 'light' else 'tts'})…")
+            # a read-only state handle for reference resolution (refreshed
+            # lazily; references don't change mid-run in practice)
+            if ps_ro is None:
+                with store.locked(key):
+                    ps_ro = store.load(key)
             try:
                 raw = dub_work.raw_path(d, n)
                 if p["tier"] == "full":
@@ -326,6 +347,26 @@ def run_dub(key: str, body: RunRequest):
                     ps.save()
                 n_failed += 1
 
+            # ---- drain any lines appended by a concurrent Dub Selected ----
+            # When we've consumed the current plan, check for line numbers
+            # appended (via try_append) while we were working. This is the
+            # only place appends are absorbed; the JobQueue guard guarantees
+            # an append either lands before the job is marked inactive (and
+            # is seen here) or is refused because the job already finished —
+            # never silently lost. De-dupe against lines already in this
+            # run's plan so a double-submit of the same selection is a no-op.
+            if i >= len(plan):
+                more = job.drain_appended()
+                if more:
+                    already = {x["line_no"] for x in plan}
+                    fresh = [n for n in dict.fromkeys(more) if n not in already]
+                    if fresh:
+                        extra = build_plan(fresh)
+                        plan.extend(extra)
+                        job.total_targets += len(extra)
+                        print(f"[dub] {key}: +{len(extra)} appended "
+                              f"(now {job.total_targets} total)", flush=True)
+
         job.set_message("done")
         print(f"[dub] {key}: run finished — ok {n_ok}, failed {n_failed}, "
               f"{time.time() - t0:.1f}s", flush=True)
@@ -341,6 +382,17 @@ def run_dub(key: str, body: RunRequest):
                                  if total_slot else None,
             "hard_stretched_lines": hard_stretched,
         }
+
+    # If a dub for this project is already running, append these targets to
+    # it instead of 409'ing — a second "Dub Selected" queues onto the
+    # current run (the status line's (i/N) count just grows). Only for
+    # explicit selections: appending "all"/"changed" mid-run would race the
+    # very badges those modes are computed from, so those still 409.
+    if body.mode == "selected":
+        existing = jobs.try_append("dub", key, targets)
+        if existing is not None:
+            return {"job": existing.snapshot(), "n_targets": len(targets),
+                    "appended": True}
 
     try:
         job = jobs.submit("dub", key, run)

@@ -37,6 +37,24 @@ class Job:
         self.started_at: float | None = None
         self.finished_at: float | None = None
         self._lock = threading.Lock()
+        # Append buffer: line numbers submitted (for the SAME project + kind)
+        # while this job is already running, to be drained into the current
+        # run instead of rejected as Busy. Only meaningful for "dub" jobs;
+        # see JobQueue.append_targets and routers/dub.py's drain loop.
+        self._appended: list[int] = []
+        self.total_targets = 0   # for "(i/N)" — grows as appends land
+
+    # ---- append-queue (called from submit path + the running job) ----
+    def append_targets(self, line_nos: list[int]) -> None:
+        with self._lock:
+            self._appended.extend(line_nos)
+
+    def drain_appended(self) -> list[int]:
+        """Return and clear any line numbers appended since the last drain."""
+        with self._lock:
+            out = self._appended
+            self._appended = []
+            return out
 
     # ---- called from inside the running job ----
     def set_message(self, msg: str) -> None:
@@ -105,6 +123,23 @@ class JobQueue:
         threading.Thread(target=run, name=f"job-{kind}-{job.id}",
                          daemon=True).start()
         return job
+
+    def try_append(self, kind: str, project_key: str,
+                   line_nos: list[int]) -> Job | None:
+        """If a job of the same kind for the same project is currently
+        active, append these line numbers to it (to be drained into the
+        running loop) and return that job. Otherwise return None — the
+        caller should submit() a fresh job as usual. Thread-safe against a
+        job finishing concurrently: the append happens under the same guard
+        that submit() uses to swap _current, so we can't append to a job
+        that's already being replaced."""
+        with self._guard:
+            c = self._current
+            if c is not None and c.active and c.kind == kind \
+                    and c.project_key == project_key:
+                c.append_targets(line_nos)
+                return c
+            return None
 
     def current(self) -> Job | None:
         """Running/queued job, or the last finished one (for post-run stats)."""

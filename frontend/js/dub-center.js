@@ -402,7 +402,9 @@
     try {
       const body = mode === 'all' ? { mode } : { mode, line_nos: [...sel] };
       const out = await api.send('POST', `${P}/dub/run`, body);
-      status(`queued ${out.n_targets} lines…`);
+      status(out.appended
+        ? `added ${out.n_targets} lines to the running dub…`
+        : `queued ${out.n_targets} lines…`);
     } catch (e) { status(e.message, true); }
   }
 
