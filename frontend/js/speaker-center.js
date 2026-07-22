@@ -28,6 +28,7 @@
 
   let playing = null;   // {audio, btn}
   const expanded = new Set();   // speaker keys with clip list open
+  const testText = new Map();
 
   /* ---------- shared job polling: one loop, many listeners ---------- */
   const jobWatch = {
@@ -139,18 +140,20 @@
       if (!s.clips.length) {
         clips.append(el('span', { class: 'dim mono' }, 'no clips extracted'));
       }
-      parts.push(clips);
       parts.push(testSpeechRow(s));
+      parts.push(clips);
     }
     return el('div', { class: 'sc-card' }, ...parts);
   }
 
   function testSpeechRow(s) {
     const input = el('input', { type: 'text', class: 'sc-test-input',
+      value: testText.get(s.key) || '',
       placeholder: 'type a line to test this voice…',
       title: 'Synthesizes with this speaker\'s CURRENT effective reference ' +
              'and knobs — the same ones a real dub would use — so you can ' +
-             'sanity-check the voice without dubbing a real line.' });
+             'sanity-check the voice without dubbing a real line.',
+    oninput: () => testText.set(s.key, input.value) });
     const genBtn = el('button', { class: 'sc-test-gen' }, 'Generate');
     const playBtn = el('button', { class: 'sc-play', title: 'Play test speech',
       disabled: true }, '▶');
